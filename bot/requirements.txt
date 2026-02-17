@@ -1,0 +1,19 @@
+# Telegram Bot
+aiogram==3.4.1
+python-dotenv==1.0.0
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+
+# MikroTik SSH
+paramiko==3.4.0
+
+# MikroTik API (RouterOS)
+routeros-api==0.21.0
+
+# WireGuard QR Code
+qrcode[pil]==7.4.2
+
+# WireGuard Key Generation (pure Python)
+cryptography==42.0.2
