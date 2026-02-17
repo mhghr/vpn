@@ -102,6 +102,8 @@ async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int
     Can use with message, callback.message, or bot.
     """
     import base64
+    import tempfile
+    import os
     try:
         # Remove data:image/png;base64, prefix if present
         if ',' in qr_base64:
@@ -110,17 +112,24 @@ async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int
         # Decode base64
         image_data = base64.b64decode(qr_base64)
         
-        # Create BytesIO
-        image_io = io.BytesIO(image_data)
-        image_io.name = 'qrcode.png'
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+            tmp.write(image_data)
+            tmp_path = tmp.name
         
-        # Send photo based on sender type
-        if chat_id:
-            # Using bot.send_photo
-            await sender.send_photo(chat_id=chat_id, photo=InputFile(image_io), caption=caption)
-        else:
-            # Using message.answer_photo
-            await sender.answer_photo(photo=InputFile(image_io), caption=caption)
+        # Send photo
+        try:
+            if chat_id:
+                # Using bot.send_photo
+                await sender.send_photo(chat_id=chat_id, photo=tmp_path, caption=caption)
+            else:
+                # Using message.answer_photo
+                await sender.answer_photo(photo=tmp_path, caption=caption)
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+                
     except Exception as e:
         print(f"Error sending QR code: {e}")
 
