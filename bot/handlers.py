@@ -27,7 +27,7 @@ from keyboards import (
     get_configs_keyboard, get_config_detail_keyboard, get_found_users_keyboard,
     get_admin_user_manage_keyboard, get_payment_method_keyboard_for_renew,
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
-    get_admin_user_configs_keyboard
+    get_admin_user_configs_keyboard, get_test_plan_manage_keyboard
 )
 
 
@@ -161,7 +161,7 @@ def get_plan_field_prompt(field: str, current_value: str = None) -> str:
     prompts = {
         "name": "📝 لطفاً نام پلن را وارد کنید:",
         "days": "⏰ لطفاً مدت زمان پلن را به روز وارد کنید (عدد):",
-        "traffic": "🌐 لطفاً میزان ترافیک را به گیگابایت وارد کنید (عدد):",
+        "traffic": "🌐 لطفاً میزان ترافیک را به گیگابایت وارد کنید (مثل 0.5 یا 1.3):",
         "price": "💰 لطفاً قیمت پلن را به تومان وارد کنید (عدد):",
         "description": "📄 لطفاً توضیحات پلن را وارد کنید:"
     }
@@ -225,6 +225,21 @@ def format_traffic_size(size_bytes: int) -> str:
     return f"{size_bytes / mib:.2f} مگابایت"
 
 
+def format_traffic_gb(traffic_gb: float) -> str:
+    value = float(traffic_gb or 0)
+    if value.is_integer():
+        return str(int(value))
+    return (f"{value:.2f}").rstrip("0").rstrip(".")
+
+
+def parse_traffic_gb(value: str) -> float:
+    normalized = normalize_numbers(value or "").strip().replace("٫", ".").replace(",", ".")
+    traffic = float(normalized)
+    if traffic <= 0:
+        raise ValueError("traffic must be positive")
+    return round(traffic, 2)
+
+
 # Messages
 WELCOME_MESSAGE = "🌐 سلام دوست عزیز! به ربات وی‌پی‌ان خوش اومدی 🚀\n\n💎 با این ربات می‌تونی:\n• 🔥 بهترین و سریع‌ترین سرویس‌های وی‌پی‌ان رو بخری\n• ⚡ کانفیگ‌هات رو مدیریت کنی\n• 📊 حجم مصرفی و وضعیت سرویست رو ببینی\n• 🎁 از تخفیف‌های ویژه استفاده کنی\n\n👇 همین الان شروع کن!"
 NOT_MEMBER_MESSAGE = f"⛔ اول باید عضو کانال ما بشی\n\n📢 <a href=\"https://t.me/{CHANNEL_USERNAME}\">@{CHANNEL_USERNAME}</a>\n\n✅ بعد از عضویت، دکمه /start رو بزن"
@@ -234,6 +249,7 @@ ADMIN_MESSAGE = "⚙️ پنل مدیریت\n\nیکی از گزینه‌های �
 PANELS_MESSAGE = "🖥️ مدیریت پنل‌ها\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
 SEARCH_USER_MESSAGE = "🔍 جستجوی کاربر\n\nلطفاً شناسه، نام کاربری یا نام کامل کاربر را وارد کنید:"
 PLANS_MESSAGE = "📦 مدیریت پلن‌ها\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
+TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
 
 
 # Message handlers
@@ -478,6 +494,13 @@ async def handle_admin_input(message: Message):
                             parse_mode="HTML"
                         )
                         
+                        if config:
+                            await send_wireguard_config_file(
+                                message,
+                                config,
+                                caption="📄 فایل کانفیگ WireGuard"
+                            )
+
                         # Send QR if available
                         if wg_result.get("qr_code"):
                             await send_qr_code(
@@ -507,14 +530,47 @@ async def handle_admin_input(message: Message):
         field = state.get("field")
         
         if field:
-            if field in ["days", "traffic", "price"]:
+            if field in ["days", "price"]:
                 text = normalize_numbers(text)
                 try:
                     int(text)
                 except ValueError:
                     await message.answer("❌ لطفاً یک عدد صحیح وارد کنید.", parse_mode="HTML")
                     return
+            elif field == "traffic":
+                try:
+                    parse_traffic_gb(text)
+                except ValueError:
+                    await message.answer("❌ لطفاً مقدار ترافیک معتبر وارد کنید (مثل 0.5 یا 1.3).", parse_mode="HTML")
+                    return
             state["data"][field] = text
+            if state.get("action") == "edit_test_plan":
+                plan_id = int(state.get("plan_id"))
+                db = SessionLocal()
+                try:
+                    plan = db.query(Plan).filter(Plan.id == plan_id, Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+                    if not plan:
+                        await message.answer("❌ پلن اکانت تست یافت نشد.", parse_mode="HTML")
+                        return
+                    if field == "days":
+                        new_days = int(normalize_numbers(text))
+                        if new_days <= 0:
+                            await message.answer("❌ مدت زمان باید بزرگتر از صفر باشد.", parse_mode="HTML")
+                            return
+                        plan.duration_days = new_days
+                    elif field == "traffic":
+                        plan.traffic_gb = parse_traffic_gb(text)
+                    db.commit()
+                    await message.answer(
+                        f"✅ تنظیمات اکانت تست ذخیره شد.\n\n• مدت: {plan.duration_days} روز\n• ترافیک: {format_traffic_gb(plan.traffic_gb)} گیگ\n• وضعیت: {'✅ فعال' if plan.is_active else '❌ غیرفعال'}",
+                        reply_markup=get_test_plan_manage_keyboard(plan.id, plan.is_active),
+                        parse_mode="HTML"
+                    )
+                finally:
+                    db.close()
+                if user_id in admin_plan_state:
+                    del admin_plan_state[user_id]
+                return
             plan_id = state.get("plan_id", "new")
             action = "ویرایش" if state.get("action") == "edit" else "ایجاد"
             if plan_id == "new":
@@ -529,13 +585,13 @@ async def handle_admin_input(message: Message):
             try:
                 plan_name = "-".join(parts[:-3]).strip()  # Allow hyphens in plan name
                 # Convert Persian/Arabic numbers to English
-                traffic = int(normalize_numbers(parts[-3].strip()))
+                traffic = parse_traffic_gb(parts[-3].strip())
                 days = int(normalize_numbers(parts[-2].strip()))
                 price = int(normalize_numbers(parts[-1].strip()))
                 
                 db = SessionLocal()
                 try:
-                    plan = Plan(name=plan_name, duration_days=days, traffic_gb=traffic, price=price, is_active=True)
+                    plan = Plan(name=plan_name, duration_days=days, traffic_gb=float(traffic), price=price, is_active=True)
                     db.add(plan)
                     db.commit()
                     del admin_plan_state[user_id]
@@ -621,6 +677,87 @@ async def callback_handler(callback: CallbackQuery, bot):
         finally:
             db.close()
     
+    elif data == "test_account_create":
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(
+                db,
+                str(user_id),
+                callback.from_user.username,
+                callback.from_user.first_name,
+                callback.from_user.last_name,
+            )
+            if user.has_used_test_account:
+                await callback.message.answer("❌ شما قبلاً از اکانت تست استفاده کرده‌اید و فقط یک‌بار مجاز هستید.", parse_mode="HTML")
+                return
+
+            plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME, Plan.is_active == True).first()
+            if not plan:
+                await callback.message.answer("❌ پلن «اکانت تست» یافت نشد یا غیرفعال است.", parse_mode="HTML")
+                return
+
+            try:
+                import wireguard
+                wg_result = wireguard.create_wireguard_account(
+                    mikrotik_host=MIKROTIK_HOST,
+                    mikrotik_user=MIKROTIK_USER,
+                    mikrotik_pass=MIKROTIK_PASS,
+                    mikrotik_port=MIKROTIK_PORT,
+                    wg_interface=WG_INTERFACE,
+                    wg_server_public_key=WG_SERVER_PUBLIC_KEY,
+                    wg_server_endpoint=WG_SERVER_ENDPOINT,
+                    wg_server_port=WG_SERVER_PORT,
+                    wg_client_network_base=WG_CLIENT_NETWORK_BASE,
+                    wg_client_dns=WG_CLIENT_DNS,
+                    user_telegram_id=str(user_id),
+                    plan_id=plan.id,
+                    plan_name=plan.name,
+                    duration_days=plan.duration_days,
+                )
+            except Exception as e:
+                await callback.message.answer(f"❌ خطا در ایجاد اکانت تست: {str(e)}", parse_mode="HTML")
+                return
+
+            if not wg_result.get("success"):
+                await callback.message.answer(
+                    f"❌ خطا در ایجاد اکانت تست: {wg_result.get('error', 'خطای نامشخص')}",
+                    parse_mode="HTML"
+                )
+                return
+
+            user.has_used_test_account = True
+            db.commit()
+
+            client_ip = wg_result.get("client_ip", "N/A")
+            config_text = wg_result.get("config", "")
+            await callback.message.answer(
+                (
+                    f"✅ اکانت تست شما ساخته شد.\n\n"
+                    f"• پلن: {plan.name}\n"
+                    f"• مدت: {plan.duration_days} روز\n"
+                    f"• حجم: {format_traffic_gb(plan.traffic_gb)} گیگ\n"
+                    f"• آی‌پی: {client_ip}\n\n"
+                    "📥 فایل کانفیگ و QR Code ارسال شد."
+                ),
+                parse_mode="HTML"
+            )
+
+            if config_text:
+                await send_wireguard_config_file(
+                    callback.message,
+                    config_text,
+                    caption="📄 فایل کانفیگ WireGuard (اکانت تست)",
+                )
+
+            if wg_result.get("qr_code"):
+                await send_qr_code(
+                    callback.message,
+                    wg_result.get("qr_code"),
+                    caption="📷 QR Code اکانت تست",
+                )
+        finally:
+            db.close()
+
     elif data == "software":
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(
@@ -1166,6 +1303,13 @@ async def callback_handler(callback: CallbackQuery, bot):
                             parse_mode="HTML"
                         )
                         
+                        if config:
+                            await send_wireguard_config_file(
+                                callback.message,
+                                config,
+                                caption="📄 فایل کانفیگ WireGuard"
+                            )
+
                         # Send QR if available
                         if wg_result.get("qr_code"):
                             await send_qr_code(
@@ -1193,6 +1337,77 @@ async def callback_handler(callback: CallbackQuery, bot):
             parse_mode="HTML"
         )
     
+    elif data == "test_plan_manage":
+        db = SessionLocal()
+        try:
+            test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+            if not test_plan:
+                test_plan = Plan(
+                    name=TEST_ACCOUNT_PLAN_NAME,
+                    duration_days=1,
+                    traffic_gb=0.5,
+                    price=0,
+                    description="پلن تست برای کاربران",
+                    is_active=False,
+                )
+                db.add(test_plan)
+                db.commit()
+                db.refresh(test_plan)
+
+            status = "✅ فعال" if test_plan.is_active else "❌ غیرفعال"
+            await callback.message.answer(
+                f"🧪 تنظیمات اکانت تست\n\n• مدت: {test_plan.duration_days} روز\n• ترافیک: {format_traffic_gb(test_plan.traffic_gb)} گیگ\n• وضعیت: {status}",
+                reply_markup=get_test_plan_manage_keyboard(test_plan.id, test_plan.is_active),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("test_plan_toggle_"):
+        plan_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            plan = db.query(Plan).filter(Plan.id == plan_id, Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+            if not plan:
+                await callback.message.answer("❌ پلن اکانت تست یافت نشد.", parse_mode="HTML")
+                return
+            plan.is_active = not plan.is_active
+            db.commit()
+            status = "✅ فعال" if plan.is_active else "❌ غیرفعال"
+            await callback.message.answer(
+                f"🧪 تنظیمات اکانت تست\n\n• مدت: {plan.duration_days} روز\n• ترافیک: {format_traffic_gb(plan.traffic_gb)} گیگ\n• وضعیت: {status}",
+                reply_markup=get_test_plan_manage_keyboard(plan.id, plan.is_active),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("test_plan_set_days_"):
+        plan_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            plan = db.query(Plan).filter(Plan.id == plan_id, Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+            if not plan:
+                await callback.message.answer("❌ پلن اکانت تست یافت نشد.", parse_mode="HTML")
+                return
+            admin_plan_state[user_id] = {"action": "edit_test_plan", "plan_id": plan_id, "field": "days", "data": {"days": str(plan.duration_days), "traffic": str(plan.traffic_gb)}}
+            await callback.message.answer("⏰ مدت زمان اکانت تست را وارد کنید (روز):", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("test_plan_set_traffic_"):
+        plan_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            plan = db.query(Plan).filter(Plan.id == plan_id, Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+            if not plan:
+                await callback.message.answer("❌ پلن اکانت تست یافت نشد.", parse_mode="HTML")
+                return
+            admin_plan_state[user_id] = {"action": "edit_test_plan", "plan_id": plan_id, "field": "traffic", "data": {"days": str(plan.duration_days), "traffic": str(plan.traffic_gb)}}
+            await callback.message.answer("🌐 ترافیک اکانت تست را وارد کنید (گیگابایت). مثال: 0.5 یا 1.3", parse_mode="HTML")
+        finally:
+            db.close()
+
     # === PLAN CALLBACKS ===
     elif data == "plan_list":
         db = SessionLocal()
@@ -1340,7 +1555,7 @@ async def callback_handler(callback: CallbackQuery, bot):
         price = normalize_numbers(plan_data.get("price", "0"))
         db = SessionLocal()
         try:
-            plan = Plan(name=plan_data["name"], duration_days=int(days), traffic_gb=int(traffic),
+            plan = Plan(name=plan_data["name"], duration_days=int(days), traffic_gb=parse_traffic_gb(traffic),
                        price=int(price), description=plan_data.get("description", ""), is_active=True)
             db.add(plan)
             db.commit()
@@ -1372,7 +1587,7 @@ async def callback_handler(callback: CallbackQuery, bot):
             if plan:
                 plan.name = plan_data["name"]
                 plan.duration_days = int(days)
-                plan.traffic_gb = int(traffic)
+                plan.traffic_gb = parse_traffic_gb(traffic)
                 plan.price = int(price)
                 plan.description = plan_data.get("description", "")
                 db.commit()

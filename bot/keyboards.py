@@ -4,7 +4,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
         [InlineKeyboardButton(text="🛒 خرید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
-        [InlineKeyboardButton(text="🔗 کانفیگ ها", callback_data="configs"), InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet")]
+        [InlineKeyboardButton(text="🔗 کانفیگ ها", callback_data="configs"), InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet")],
+        [InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")]
     ]
     if is_admin_user:
         buttons.append([InlineKeyboardButton(text="⚙️ مدیریت", callback_data="admin")])
@@ -47,6 +48,7 @@ def get_plans_keyboard(plans: list = None):
     else:
         buttons.append([InlineKeyboardButton(text="📋 لیست پلن‌ها", callback_data="plan_list")])
     
+    buttons.append([InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_plan_manage")])
     buttons.append([InlineKeyboardButton(text="➕ افزودن پلن جدید", callback_data="plan_create")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -251,4 +253,13 @@ def get_cancel_payment_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ انصراف", callback_data="payment_cancel")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
+    ])
+
+
+def get_test_plan_manage_keyboard(test_plan_id: int, is_active: bool):
+    toggle_text = "🟢 فعال کردن" if not is_active else "🔴 غیرفعال کردن"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏰ تنظیم مدت زمان", callback_data=f"test_plan_set_days_{test_plan_id}"), InlineKeyboardButton(text="🌐 تنظیم ترافیک", callback_data=f"test_plan_set_traffic_{test_plan_id}")],
+        [InlineKeyboardButton(text=toggle_text, callback_data=f"test_plan_toggle_{test_plan_id}")],
+        [InlineKeyboardButton(text="🔙 بازگشت به پلن‌ها", callback_data="admin_plans")]
     ])

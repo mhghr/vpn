@@ -2,7 +2,7 @@
 SQLAlchemy database models.
 """
 from datetime import datetime
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Text, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -21,6 +21,7 @@ class User(Base):
     is_member = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
     wallet_balance = Column(Integer, default=0)
+    has_used_test_account = Column(Boolean, default=False)
     joined_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):
@@ -61,7 +62,7 @@ class Plan(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     duration_days = Column(Integer, nullable=False)
-    traffic_gb = Column(Integer, nullable=False)
+    traffic_gb = Column(Float, nullable=False)
     price = Column(Integer, nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
