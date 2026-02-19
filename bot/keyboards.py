@@ -4,7 +4,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
         [InlineKeyboardButton(text="🛒 خرید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
-        [InlineKeyboardButton(text="🔗 کانفیگ ها", callback_data="configs"), InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet")]
+        [InlineKeyboardButton(text="🔗 کانفیگ ها", callback_data="configs"), InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet")],
+        [InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")]
     ]
     if is_admin_user:
         buttons.append([InlineKeyboardButton(text="⚙️ مدیریت", callback_data="admin")])
