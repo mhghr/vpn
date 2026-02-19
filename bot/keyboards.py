@@ -133,6 +133,12 @@ def get_receipt_action_keyboard(receipt_id: int):
     ])
 
 
+def get_receipt_done_keyboard(status_text: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=status_text, callback_data="receipt_done")]
+    ])
+
+
 def get_found_users_keyboard(users: list):
     buttons = []
     for user in users[:20]:
@@ -172,6 +178,15 @@ def get_admin_config_confirm_delete_keyboard(config_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ بله، حذف کن", callback_data=f"admin_cfg_delete_confirm_{config_id}"), InlineKeyboardButton(text="❌ خیر", callback_data=f"admin_cfg_view_{config_id}")]
     ])
+
+
+def get_config_detail_keyboard(config_id: int, can_renew: bool = False):
+    """User view config detail keyboard"""
+    buttons = []
+    if can_renew:
+        buttons.append([InlineKeyboardButton(text="♻️ تمدید سرویس", callback_data=f"cfg_renew_{config_id}")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_admin_user_configs_keyboard(user_id: int, configs: list):

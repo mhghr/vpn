@@ -1,17 +1,18 @@
 import json
 import os
 import io
+from datetime import datetime
 from datetime import datetime, timedelta
 
 from aiogram import Dispatcher
-from aiogram.types import Message, CallbackQuery, InputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile
 
 from database import SessionLocal, engine
 from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode
 from config import (
     CHANNEL_ID, CHANNEL_USERNAME, ADMIN_IDS,
     admin_plan_state, admin_create_account_state, user_payment_state,
-    admin_user_search_state, admin_wallet_adjust_state, admin_discount_state,
+    admin_user_search_state, admin_wallet_adjust_state, admin_discount_state, admin_receipt_reject_state,
     CARD_NUMBER, CARD_HOLDER,
     MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT,
     WG_INTERFACE, WG_SERVER_PUBLIC_KEY, WG_SERVER_ENDPOINT, WG_SERVER_PORT,
@@ -22,7 +23,7 @@ from keyboards import (
     get_main_keyboard, get_admin_keyboard, get_panels_keyboard,
     get_pending_panel_keyboard, get_plans_keyboard, get_plan_list_keyboard,
     get_plan_action_keyboard, get_plan_edit_keyboard, get_buy_keyboard,
-    get_payment_method_keyboard, get_receipt_action_keyboard, get_create_account_keyboard,
+    get_payment_method_keyboard, get_receipt_action_keyboard, get_receipt_done_keyboard, get_create_account_keyboard,
     get_configs_keyboard, get_config_detail_keyboard, get_found_users_keyboard,
     get_admin_user_manage_keyboard, get_payment_method_keyboard_for_renew,
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
@@ -107,8 +108,6 @@ async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int
     Can use with message, callback.message, or bot.
     """
     import base64
-    import tempfile
-    import os
     try:
         # Remove data:image/png;base64, prefix if present
         if ',' in qr_base64:
@@ -117,26 +116,45 @@ async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int
         # Decode base64
         image_data = base64.b64decode(qr_base64)
         
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-            tmp.write(image_data)
-            tmp_path = tmp.name
+        # Create BufferedInputFile from bytes
+        photo_file = BufferedInputFile(image_data, filename="qr_code.png")
         
         # Send photo
-        try:
-            if chat_id:
-                # Using bot.send_photo
-                await sender.send_photo(chat_id=chat_id, photo=tmp_path, caption=caption)
-            else:
-                # Using message.answer_photo
-                await sender.answer_photo(photo=tmp_path, caption=caption)
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        if chat_id:
+            # Using bot.send_photo
+            await sender.send_photo(chat_id=chat_id, photo=photo_file, caption=caption)
+        else:
+            # Using message.answer_photo
+            await sender.answer_photo(photo=photo_file, caption=caption)
                 
     except Exception as e:
         print(f"Error sending QR code: {e}")
+
+
+async def send_wireguard_config_file(sender, config_text: str, caption: str = None, chat_id: int = None):
+    """Send wireguard config as .conf file."""
+    import tempfile
+    import os
+
+    if not config_text:
+        return
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False, encoding="utf-8") as tmp:
+            tmp.write(config_text)
+            tmp_path = tmp.name
+
+        document = FSInputFile(tmp_path, filename="wireguard.conf")
+        if chat_id:
+            await sender.send_document(chat_id=chat_id, document=document, caption=caption or "📄 فایل کانفیگ WireGuard")
+        else:
+            await sender.answer_document(document=document, caption=caption or "📄 فایل کانفیگ WireGuard")
+    except Exception as e:
+        print(f"Error sending config file: {e}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def get_plan_field_prompt(field: str, current_value: str = None) -> str:
@@ -208,8 +226,8 @@ def format_traffic_size(size_bytes: int) -> str:
 
 
 # Messages
-WELCOME_MESSAGE = "🌟 به ربات فروش وی پی ان خوش آمدید!\n\n✨ با استفاده از این ربات می‌توانید:\n• بهترین سرویس‌های وی پی ان را خریداری کنید\n• لینک‌های اتصال خود را مدیریت کنید\n• وضعیت سرویس خود را بررسی کنید\n\nاز دکمه‌های زیر استفاده کنید:"
-NOT_MEMBER_MESSAGE = f"❌ برای استفاده از این ربات ابتدا باید در کانال ما عضو شوید.\n\n📢 <a href=\"https://t.me/{CHANNEL_USERNAME}\">@{CHANNEL_USERNAME}</a>\n\n✅ پس از عضویت، دوباره /start را بزنید."
+WELCOME_MESSAGE = "🌐 سلام دوست عزیز! به ربات وی‌پی‌ان خوش اومدی 🚀\n\n💎 با این ربات می‌تونی:\n• 🔥 بهترین و سریع‌ترین سرویس‌های وی‌پی‌ان رو بخری\n• ⚡ کانفیگ‌هات رو مدیریت کنی\n• 📊 حجم مصرفی و وضعیت سرویست رو ببینی\n• 🎁 از تخفیف‌های ویژه استفاده کنی\n\n👇 همین الان شروع کن!"
+NOT_MEMBER_MESSAGE = f"⛔ اول باید عضو کانال ما بشی\n\n📢 <a href=\"https://t.me/{CHANNEL_USERNAME}\">@{CHANNEL_USERNAME}</a>\n\n✅ بعد از عضویت، دکمه /start رو بزن"
 MY_CONFIGS_MESSAGE = "🔗 کانفیگ های من\n\nشما هنوز کانفیگ فعالی ندارید.\n\nبرای خرید سرویس جدید، روی دکمه «🛒 خرید» کلیک کنید."
 WALLET_MESSAGE = "💰 شارژ کیف پول\n\nموجودی فعلی شما: 0 تومان\n\nبرای شارژ کیف پول، لطفاً با پشتیبانی تماس بگیرید."
 ADMIN_MESSAGE = "⚙️ پنل مدیریت\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
@@ -364,6 +382,40 @@ async def handle_admin_input(message: Message):
                 db.close()
                 del admin_discount_state[user_id]
             return
+
+    # Handle receipt reject flow
+    if user_id in admin_receipt_reject_state:
+        state = admin_receipt_reject_state[user_id]
+        receipt_id = state.get("receipt_id")
+        reject_reason = text.strip()
+        
+        db = SessionLocal()
+        try:
+            receipt = db.query(PaymentReceipt).filter(PaymentReceipt.id == receipt_id).first()
+            if receipt:
+                receipt.status = "rejected"
+                db.commit()
+                
+                # Notify user about rejection
+                try:
+                    user_tg_id = int(receipt.user_telegram_id)
+                    await message.bot.send_message(
+                        chat_id=user_tg_id,
+                        text=f"❌ پرداخت شما رد شد.\n\n📋 دلیل: {reject_reason}\n\nبرای اطلاعات بیشتر با پشتیبانی تماس بگیرید.",
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    print(f"Error notifying user about rejection: {e}")
+                
+                await message.answer(f"✅ فیش رد شد و کاربر اطلاع داده شد.\n📋 دلیل: {reject_reason}", reply_markup=get_receipt_done_keyboard(), parse_mode="HTML")
+            else:
+                await message.answer("❌ فیش پرداخت یافت نشد.", parse_mode="HTML")
+        except Exception as e:
+            await message.answer(f"❌ خطا: {str(e)}", parse_mode="HTML")
+        finally:
+            db.close()
+            del admin_receipt_reject_state[user_id]
+        return
     
     # Handle custom account creation flow
     if user_id in admin_create_account_state:
@@ -1456,19 +1508,24 @@ async def callback_handler(callback: CallbackQuery, bot):
                             user_tg_id = int(receipt.user_telegram_id)
                             config = wg_result.get("config", "")
                             
-                            await callback.message.bot.send_message(
-                                chat_id=user_tg_id,
-                                text=f"✅ پرداخت شما تایید شد!\n\nحساب WireGuard شما ایجاد شد:\n\n• آی پی: {client_ip}\n\nکانفیگ:",
-                                parse_mode="HTML"
-                            )
-                            
-                            # Send config text
+                            # Send config as file
                             if config:
-                                await callback.message.bot.send_message(
-                                    chat_id=user_tg_id,
-                                    text=f"<code>{config}</code>",
-                                    parse_mode="HTML"
-                                )
+                                import tempfile
+                                import os
+                                tmp_path = None
+                                try:
+                                    with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False, encoding="utf-8") as tmp:
+                                        tmp.write(config)
+                                        tmp_path = tmp.name
+
+                                    await callback.message.bot.send_document(
+                                        chat_id=user_tg_id,
+                                        document=FSInputFile(tmp_path, filename="wireguard.conf"),
+                                        caption="📄 فایل کانفیگ WireGuard"
+                                    )
+                                finally:
+                                    if tmp_path and os.path.exists(tmp_path):
+                                        os.remove(tmp_path)
                             
                             # Send QR code if available
                             if wg_result.get("qr_code"):
@@ -1476,7 +1533,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                                     await send_qr_code(
                                         callback.message.bot,
                                         wg_result.get("qr_code"),
-                                        f"QR Code - {receipt.plan_name}",
+                                        f"📋 اطلاعات پلن:\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n\n➕ این تصویر را در نرم‌افزار WireGuard اضافه کنید",
                                         chat_id=user_tg_id
                                     )
                                 except Exception as e:
@@ -1492,11 +1549,13 @@ async def callback_handler(callback: CallbackQuery, bot):
                 if wg_created:
                     await callback.message.answer(
                         f"✅ پرداخت تایید شد!\n\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n• کاربر: {receipt.user_telegram_id}\n\nحساب WireGuard ایجاد شد:\n• آی پی: {client_ip}",
+                        reply_markup=get_receipt_done_keyboard(),
                         parse_mode="HTML"
                     )
                 else:
                     await callback.message.answer(
                         f"✅ پرداخت تایید شد!\n\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n• کاربر: {receipt.user_telegram_id}\n\n⚠️ حساب WireGuard ایجاد نشد. لطفاً دستی ایجاد کنید.",
+                        reply_markup=get_receipt_done_keyboard(),
                         parse_mode="HTML"
                     )
             else:
@@ -1511,22 +1570,8 @@ async def callback_handler(callback: CallbackQuery, bot):
             await callback.answer("❌ دسترسی ندارید.", show_alert=True)
             return
         receipt_id = int(data.split("_")[-1])
-        db = SessionLocal()
-        try:
-            receipt = db.query(PaymentReceipt).filter(PaymentReceipt.id == receipt_id).first()
-            if receipt:
-                receipt.status = "rejected"
-                db.commit()
-                await callback.message.answer(
-                    f"❌ پرداخت رد شد!\n\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n• کاربر: {receipt.user_telegram_id}",
-                    parse_mode="HTML"
-                )
-            else:
-                await callback.message.answer("❌ فیش پرداخت یافت نشد.", parse_mode="HTML")
-        except Exception as e:
-            await callback.message.answer(f"❌ خطا: {str(e)}", parse_mode="HTML")
-        finally:
-            db.close()
+        admin_receipt_reject_state[user_id] = {"receipt_id": receipt_id}
+        await callback.message.answer("❌ لطفاً دلیل رد کردن فیش را بنویسید:", parse_mode="HTML")
     
     elif data == "back_to_main":
         db = SessionLocal()
@@ -1535,6 +1580,9 @@ async def callback_handler(callback: CallbackQuery, bot):
             await callback.message.answer(WELCOME_MESSAGE, reply_markup=get_main_keyboard(user.is_admin if user else False), parse_mode="HTML")
         finally:
             db.close()
+    
+    elif data == "receipt_done":
+        await callback.answer("این فیش قبلاً تایید شده است.", show_alert=True)
     
     await callback.answer()
 
@@ -1635,8 +1683,12 @@ async def handle_receipt_photo(message: Message):
         del user_payment_state[user_id]
         
         # Send confirmation to user
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await message.answer(
-            f"✅ فیش پرداخت دریافت شد!\n\n📋 اطلاعات پرداخت:\n• پلن: {payment_info['plan_name']}\n• مبلغ: {payment_info['price']} تومان\n\n⏰ لطفاً منتظر تایید پرداخت توسط مدیریت باشید.\n\nپس از تایید، حساب کاربری برای شما ارسال می‌شود.",
+            "✅ فیش پرداخت دریافت شد!\n\n⏰ لطفاً منتظر تایید پرداخت توسط مدیریت باشید.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")]
+            ]),
             parse_mode="HTML"
         )
         

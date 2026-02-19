@@ -45,3 +45,4 @@ user_payment_state = {}  # For user payment flow
 admin_user_search_state = {}  # For admin user search flow
 admin_wallet_adjust_state = {}  # For admin wallet increase/decrease flow
 admin_discount_state = {}  # For admin discount code creation flow
+admin_receipt_reject_state = {}  # For admin reject-reason flow
