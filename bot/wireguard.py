@@ -105,6 +105,304 @@ def format_endpoint_host(host: str):
     return host
 
 
+def _safe_int(value) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _read_peer_counter(peer: dict, *candidate_keys: str) -> int:
+    """Read first existing counter key from RouterOS peer payload."""
+    for key in candidate_keys:
+        if key in peer and peer.get(key) not in (None, ""):
+            return _safe_int(peer.get(key))
+    return 0
+
+
+def _resolve_config_for_peer(peer: dict, config_index: dict):
+    """Match MikroTik peer with a DB config using comment or allowed-address."""
+    comment = peer.get("comment", "")
+    if comment and comment in config_index:
+        return config_index[comment]
+
+    allowed_address = peer.get("allowed-address", "")
+    peer_ip = allowed_address.split('/')[0].strip() if allowed_address else ""
+    if peer_ip:
+        return config_index.get(peer_ip)
+    return None
+
+
+def sync_wireguard_usage_counters(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int,
+    wg_interface: str,
+):
+    """Sync RX/TX counters from MikroTik peers into local DB with reboot/reset handling."""
+    if not ROUTEROS_API_AVAILABLE:
+        logger.warning("routeros_api unavailable; skipping usage sync")
+        return
+
+    db = SessionLocal()
+    pool = None
+    try:
+        active_configs = db.query(WireGuardConfig).filter(WireGuardConfig.status == "active").all()
+        if not active_configs:
+            return
+
+        config_index = {}
+        for config in active_configs:
+            ip_last_octet = config.client_ip.rsplit('.', 1)[-1] if config.client_ip else ""
+            comment_key = f"{config.user_telegram_id}-{ip_last_octet}" if ip_last_octet else ""
+            if comment_key:
+                config_index[comment_key] = config
+            if config.client_ip:
+                config_index[config.client_ip] = config
+
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=mikrotik_port,
+            plaintext_login=True
+        )
+        api = pool.get_api()
+        peers = api.get_resource('/interface/wireguard/peers').get()
+
+        for peer in peers:
+            config = _resolve_config_for_peer(peer, config_index)
+            if not config:
+                continue
+
+            peer_interface = peer.get("interface")
+            if peer_interface and peer_interface != wg_interface:
+                continue
+
+            current_rx = _read_peer_counter(peer, "rx", "rx-byte", "rx-bytes")
+            current_tx = _read_peer_counter(peer, "tx", "tx-byte", "tx-bytes")
+            previous_rx = config.last_rx_counter or 0
+            previous_tx = config.last_tx_counter or 0
+
+            if config.counter_reset_flag:
+                config.cumulative_rx_bytes = 0
+                config.cumulative_tx_bytes = 0
+                delta_rx = 0
+                delta_tx = 0
+                config.counter_reset_flag = False
+            else:
+                # Router reboot / counter reset: if current counter is smaller than previous
+                delta_rx = current_rx if current_rx < previous_rx else current_rx - previous_rx
+                delta_tx = current_tx if current_tx < previous_tx else current_tx - previous_tx
+
+            config.cumulative_rx_bytes = (config.cumulative_rx_bytes or 0) + max(delta_rx, 0)
+            config.cumulative_tx_bytes = (config.cumulative_tx_bytes or 0) + max(delta_tx, 0)
+            config.last_rx_counter = current_rx
+            config.last_tx_counter = current_tx
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to sync wireguard usage counters: {e}")
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+        db.close()
+
+
+def _peer_matches_config(peer: dict, config: WireGuardConfig) -> bool:
+    comment = peer.get("comment", "")
+    ip_last_octet = config.client_ip.rsplit('.', 1)[-1] if config.client_ip else ""
+    expected_comment = f"{config.user_telegram_id}-{ip_last_octet}" if ip_last_octet else ""
+    if expected_comment and comment == expected_comment:
+        return True
+
+    allowed_address = (peer.get("allowed-address") or "").split('/')[0].strip()
+    return bool(allowed_address and allowed_address == config.client_ip)
+
+
+def disable_expired_or_exhausted_configs(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int,
+    wg_interface: str,
+):
+    """Disable peers on MikroTik when plan duration or traffic is exhausted."""
+    if not ROUTEROS_API_AVAILABLE:
+        logger.warning("routeros_api unavailable; skipping disable checks")
+        return
+
+    db = SessionLocal()
+    pool = None
+    try:
+        active_configs = db.query(WireGuardConfig).filter(WireGuardConfig.status == "active").all()
+        if not active_configs:
+            return
+
+        now = datetime.utcnow()
+        targets = []
+        for config in active_configs:
+            if not config.plan_id:
+                continue
+            plan = db.query(Plan).filter(Plan.id == config.plan_id).first()
+            if not plan or not plan.duration_days or not plan.traffic_gb:
+                continue
+
+            expires_at = config.expires_at or (config.created_at + timedelta(days=plan.duration_days))
+            plan_traffic_bytes = plan.traffic_gb * (1024 ** 3)
+            consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+            exhausted_traffic = consumed_bytes >= plan_traffic_bytes
+            expired_time = expires_at <= now
+
+            if exhausted_traffic or expired_time:
+                targets.append(config)
+
+        if not targets:
+            return
+
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=mikrotik_port,
+            plaintext_login=True
+        )
+        api = pool.get_api()
+        peers_resource = api.get_resource('/interface/wireguard/peers')
+        peers = peers_resource.get()
+
+        for config in targets:
+            for peer in peers:
+                peer_interface = peer.get("interface")
+                if peer_interface and peer_interface != wg_interface:
+                    continue
+                if _peer_matches_config(peer, config):
+                    peer_id = peer.get(".id")
+                    if peer_id:
+                        peers_resource.set(**{".id": peer_id, "disabled": "yes"})
+                    break
+            config.status = "expired"
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to disable expired/exhausted configs: {e}")
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+        db.close()
+
+
+def disable_wireguard_peer(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int,
+    wg_interface: str,
+    client_ip: str,
+):
+    """Disable a specific WireGuard peer on MikroTik by IP."""
+    if not ROUTEROS_API_AVAILABLE:
+        logger.warning("routeros_api unavailable; skipping disable")
+        return False
+
+    pool = None
+    try:
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=mikrotik_port,
+            plaintext_login=True
+        )
+        api = pool.get_api()
+        peers = api.get_resource('/interface/wireguard/peers').get()
+
+        for peer in peers:
+            peer_interface = peer.get("interface")
+            if peer_interface and peer_interface != wg_interface:
+                continue
+            
+            allowed_address = (peer.get("allowed-address") or "").split('/')[0].strip()
+            if allowed_address == client_ip:
+                peer_id = peer.get(".id")
+                if peer_id:
+                    api.get_resource('/interface/wireguard/peers').set(**{".id": peer_id, "disabled": "yes"})
+                    logger.info(f"Disabled peer with IP: {client_ip}")
+                    return True
+        
+        logger.warning(f"Peer not found for IP: {client_ip}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to disable peer: {e}")
+        return False
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+
+
+def delete_wireguard_peer(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int,
+    wg_interface: str,
+    client_ip: str,
+):
+    """Delete a specific WireGuard peer on MikroTik by IP."""
+    if not ROUTEROS_API_AVAILABLE:
+        logger.warning("routeros_api unavailable; skipping delete")
+        return False
+
+    pool = None
+    try:
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=mikrotik_port,
+            plaintext_login=True
+        )
+        api = pool.get_api()
+        peers = api.get_resource('/interface/wireguard/peers').get()
+
+        for peer in peers:
+            peer_interface = peer.get("interface")
+            if peer_interface and peer_interface != wg_interface:
+                continue
+            
+            allowed_address = (peer.get("allowed-address") or "").split('/')[0].strip()
+            if allowed_address == client_ip:
+                peer_id = peer.get(".id")
+                if peer_id:
+                    api.get_resource('/interface/wireguard/peers').remove(**{".id": peer_id})
+                    logger.info(f"Deleted peer with IP: {client_ip}")
+                    return True
+        
+        logger.warning(f"Peer not found for IP: {client_ip}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to delete peer: {e}")
+        return False
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+
+
 def get_next_available_ip_from_db(network_base: str) -> str:
     """
     Get next available IP from the database
@@ -199,6 +497,130 @@ def save_wireguard_config_to_db(
         
     except Exception as e:
         logger.error(f"[Step 7] ✗ Failed to save WireGuard config: {e}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+
+
+def parse_mikrotik_byte_value(value) -> int:
+    """Parse MikroTik traffic counters to integer bytes."""
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    txt = str(value).strip().lower()
+    units = {
+        'b': 1,
+        'kb': 1000,
+        'mb': 1000 ** 2,
+        'gb': 1000 ** 3,
+        'tb': 1000 ** 4,
+        'kib': 1024,
+        'mib': 1024 ** 2,
+        'gib': 1024 ** 3,
+        'tib': 1024 ** 4,
+    }
+
+    for unit in sorted(units, key=len, reverse=True):
+        if txt.endswith(unit):
+            num = txt[:-len(unit)].strip()
+            try:
+                return int(float(num) * units[unit])
+            except ValueError:
+                return 0
+
+    try:
+        return int(float(txt))
+    except ValueError:
+        return 0
+
+
+def fetch_wireguard_peers_usage(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int
+) -> dict:
+    """Fetch WireGuard peers usage counters from MikroTik."""
+    if not ROUTEROS_API_AVAILABLE:
+        raise RuntimeError("routeros_api module not installed")
+
+    pool = None
+    try:
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=mikrotik_port,
+            plaintext_login=True
+        )
+        api = pool.get_api()
+        peers = api.get_resource('/interface/wireguard/peers').get()
+
+        usage = {}
+        for peer in peers:
+            public_key = peer.get('public-key')
+            if not public_key:
+                continue
+            rx = parse_mikrotik_byte_value(peer.get('rx') or peer.get('rx-byte'))
+            tx = parse_mikrotik_byte_value(peer.get('tx') or peer.get('tx-byte'))
+            usage[public_key] = {'rx': rx, 'tx': tx}
+
+        return usage
+    finally:
+        if pool:
+            pool.disconnect()
+
+
+def sync_wireguard_usage_to_db(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int
+) -> tuple[int, int]:
+    """Sync usage from MikroTik to DB. Returns (updated_configs, total_active_configs)."""
+    usage_map = fetch_wireguard_peers_usage(
+        mikrotik_host=mikrotik_host,
+        mikrotik_user=mikrotik_user,
+        mikrotik_pass=mikrotik_pass,
+        mikrotik_port=mikrotik_port
+    )
+
+    db = SessionLocal()
+    try:
+        configs = db.query(WireGuardConfig).filter(WireGuardConfig.status == 'active').all()
+        updated = 0
+        now = datetime.utcnow()
+
+        for cfg in configs:
+            peer_usage = usage_map.get(cfg.public_key)
+            if not peer_usage:
+                continue
+
+            rx = max(peer_usage.get('rx', 0), 0)
+            tx = max(peer_usage.get('tx', 0), 0)
+            total_now = rx + tx
+
+            prev_total = max((cfg.last_rx_bytes or 0) + (cfg.last_tx_bytes or 0), 0)
+            if total_now >= prev_total:
+                delta = total_now - prev_total
+                cfg.traffic_used_bytes = (cfg.traffic_used_bytes or 0) + delta
+            else:
+                # Counter reset on router reboot; add full current counter as new baseline usage.
+                cfg.traffic_used_bytes = (cfg.traffic_used_bytes or 0) + total_now
+
+            cfg.last_rx_bytes = rx
+            cfg.last_tx_bytes = tx
+            cfg.last_usage_sync_at = now
+            updated += 1
+
+        db.commit()
+        return updated, len(configs)
+    except Exception:
         db.rollback()
         raise
     finally:

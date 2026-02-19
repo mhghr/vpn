@@ -2,7 +2,7 @@
 SQLAlchemy database models.
 """
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -29,27 +29,27 @@ class User(Base):
 
 class Panel(Base):
     """
-    Panel model - stores XUI panel information.
+    Panel model - stores panel information.
     """
     __tablename__ = "panels"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    location = Column(String, nullable=False)
     ip_address = Column(String, nullable=False)
+    local_ip = Column(String, nullable=True)
+    location = Column(String, nullable=True)
     port = Column(Integer, default=2053)
     path = Column(String, default="/")
-    api_username = Column(String, nullable=False)
-    api_password = Column(String, nullable=False)
-    local_ip = Column(String, nullable=True)
+    api_username = Column(String, nullable=True)
+    api_password = Column(String, nullable=True)
     xui_version = Column(String, nullable=True)
-    status = Column(String, default="pending")  # pending, approved, rejected
     system_info = Column(Text, nullable=True)
+    status = Column(String, default="pending")  # pending, approved, rejected
     created_at = Column(DateTime, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
     
     def __repr__(self):
-        return f"<Panel(name={self.name}, location={self.location})>"
+        return f"<Panel(name={self.name}, ip={self.ip_address})>"
 
 
 class Plan(Base):
@@ -60,15 +60,15 @@ class Plan(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    duration_days = Column(Integer, nullable=False)  # Duration in days
-    traffic_gb = Column(Integer, nullable=False)  # Traffic in GB
-    price = Column(Integer, nullable=False)  # Price in Toman
-    description = Column(String, nullable=True)
+    duration_days = Column(Integer, nullable=False)
+    traffic_gb = Column(Integer, nullable=False)
+    price = Column(Integer, nullable=False)
+    description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):
-        return f"<Plan(name={self.name}, {self.duration_days} days, {self.traffic_gb}GB)>"
+        return f"<Plan(name={self.name}, days={self.duration_days}, price={self.price})>"
 
 
 class PaymentReceipt(Base):
@@ -79,11 +79,11 @@ class PaymentReceipt(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_telegram_id = Column(String, index=True, nullable=False)
-    plan_id = Column(Integer, nullable=False)
+    plan_id = Column(Integer, nullable=True)
     plan_name = Column(String, nullable=False)
     amount = Column(Integer, nullable=False)
     payment_method = Column(String, nullable=False)  # card_to_card, wallet
-    receipt_file_id = Column(String, nullable=True)  # Telegram file ID
+    receipt_file_id = Column(String, nullable=True)
     status = Column(String, default="pending")  # pending, approved, rejected
     created_at = Column(DateTime, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
@@ -115,6 +115,13 @@ class WireGuardConfig(Base):
     status = Column(String, default="active")  # active, expired, revoked
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
+    cumulative_rx_bytes = Column(BigInteger, default=0)
+    cumulative_tx_bytes = Column(BigInteger, default=0)
+    last_rx_counter = Column(BigInteger, default=0)
+    last_tx_counter = Column(BigInteger, default=0)
+    counter_reset_flag = Column(Boolean, default=False)
+    low_traffic_alert_sent = Column(Boolean, default=False)
+    expiry_alert_sent = Column(Boolean, default=False)
     
     def __repr__(self):
         return f"<WireGuardConfig(user={self.user_telegram_id}, ip={self.client_ip})>"
@@ -145,11 +152,26 @@ DNS = {self.wg_client_dns}
 
 [Peer]
 PublicKey = {self.wg_server_public_key}
-Endpoint = {self.wg_server_endpoint}:{self.wg_server_port}
 AllowedIPs = {self.allowed_ips}
-"""
-        if self.preshared_key:
-            config += f"PresharedKey = {self.preshared_key}\n"
+Endpoint = {self.wg_server_endpoint}:{self.wg_server_port}
+PersistentKeepalive = 25"""
         
-        config += "PersistentKeepalive = 25"
+        if self.preshared_key:
+            config += f"\nPresharedKey = {self.preshared_key}"
+        
         return config
+
+
+class GiftCode(Base):
+    """Gift/discount code model."""
+    __tablename__ = "gift_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True, nullable=False)
+    discount_percent = Column(Integer, nullable=True)
+    discount_amount = Column(Integer, nullable=True)  # Toman
+    max_uses = Column(Integer, default=1)
+    used_count = Column(Integer, default=0)
+    expires_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

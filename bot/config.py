@@ -42,3 +42,6 @@ WG_CLIENT_DNS = os.getenv("WIREGUARD_DNS", "8.8.8.8,1.0.0.1")
 admin_plan_state = {}  # For plan creation/editing flow
 admin_create_account_state = {}  # For custom account creation flow
 user_payment_state = {}  # For user payment flow
+admin_user_search_state = {}  # For admin user search flow
+admin_wallet_adjust_state = {}  # For admin wallet increase/decrease flow
+admin_discount_state = {}  # For admin discount code creation flow

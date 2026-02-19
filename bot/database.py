@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # Database configuration
@@ -40,5 +40,15 @@ def init_db():
     Initialize database - create all tables.
     Call this on application startup.
     """
-    from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig
+    from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode
     Base.metadata.create_all(bind=engine)
+
+    # Lightweight schema migration for usage counters (safe for repeated runs)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS cumulative_rx_bytes BIGINT DEFAULT 0"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS cumulative_tx_bytes BIGINT DEFAULT 0"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS last_rx_counter BIGINT DEFAULT 0"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS last_tx_counter BIGINT DEFAULT 0"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS counter_reset_flag BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS low_traffic_alert_sent BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS expiry_alert_sent BOOLEAN DEFAULT FALSE"))
