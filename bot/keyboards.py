@@ -3,9 +3,10 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
-        [InlineKeyboardButton(text="🛒 خرید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
-        [InlineKeyboardButton(text="🔗 کانفیگ ها", callback_data="configs"), InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet")],
-        [InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")]
+        [InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
+        [InlineKeyboardButton(text="🔗 کانفیگ‌های من", callback_data="configs"), InlineKeyboardButton(text="📖 آموزش اتصال", callback_data="howto")],
+        [InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet"), InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
+        [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile")]
     ]
     if is_admin_user:
         buttons.append([InlineKeyboardButton(text="⚙️ مدیریت", callback_data="admin")])
@@ -98,10 +99,10 @@ def get_buy_keyboard(plans: list):
     for i in range(0, len(plans), 2):
         row = []
         plan1 = plans[i]
-        row.append(InlineKeyboardButton(text=f"🔥 {plan1.name} - {plan1.duration_days} روز", callback_data=f"buy_plan_{plan1.id}"))
+        row.append(InlineKeyboardButton(text=f"{plan1.name} - {plan1.traffic_gb}گیگ - {plan1.duration_days}روز - {plan1.price:,}تومان", callback_data=f"buy_plan_{plan1.id}"))
         if i + 1 < len(plans):
             plan2 = plans[i + 1]
-            row.append(InlineKeyboardButton(text=f"🔥 {plan2.name} - {plan2.duration_days} روز", callback_data=f"buy_plan_{plan2.id}"))
+            row.append(InlineKeyboardButton(text=f"{plan2.name} - {plan2.traffic_gb}گیگ - {plan2.duration_days}روز - {plan2.price:,}تومان", callback_data=f"buy_plan_{plan2.id}"))
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

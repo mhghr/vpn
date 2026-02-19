@@ -30,6 +30,10 @@ from keyboards import (
     get_admin_user_configs_keyboard
 )
 
+from texts import (
+    WELCOME_MESSAGE, NOT_MEMBER_MESSAGE, ADMIN_MESSAGE, PANELS_MESSAGE, SEARCH_USER_MESSAGE, PLANS_MESSAGE, TEST_ACCOUNT_PLAN_NAME
+)
+
 
 dp = Dispatcher()
 
@@ -226,15 +230,11 @@ def format_traffic_size(size_bytes: int) -> str:
 
 
 # Messages
-WELCOME_MESSAGE = "🌐 سلام دوست عزیز! به ربات وی‌پی‌ان خوش اومدی 🚀\n\n💎 با این ربات می‌تونی:\n• 🔥 بهترین و سریع‌ترین سرویس‌های وی‌پی‌ان رو بخری\n• ⚡ کانفیگ‌هات رو مدیریت کنی\n• 📊 حجم مصرفی و وضعیت سرویست رو ببینی\n• 🎁 از تخفیف‌های ویژه استفاده کنی\n\n👇 همین الان شروع کن!"
-NOT_MEMBER_MESSAGE = f"⛔ اول باید عضو کانال ما بشی\n\n📢 <a href=\"https://t.me/{CHANNEL_USERNAME}\">@{CHANNEL_USERNAME}</a>\n\n✅ بعد از عضویت، دکمه /start رو بزن"
-MY_CONFIGS_MESSAGE = "🔗 کانفیگ های من\n\nشما هنوز کانفیگ فعالی ندارید.\n\nبرای خرید سرویس جدید، روی دکمه «🛒 خرید» کلیک کنید."
-WALLET_MESSAGE = "💰 شارژ کیف پول\n\nموجودی فعلی شما: 0 تومان\n\nبرای شارژ کیف پول، لطفاً با پشتیبانی تماس بگیرید."
-ADMIN_MESSAGE = "⚙️ پنل مدیریت\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
-PANELS_MESSAGE = "🖥️ مدیریت پنل‌ها\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
-SEARCH_USER_MESSAGE = "🔍 جستجوی کاربر\n\nلطفاً شناسه، نام کاربری یا نام کامل کاربر را وارد کنید:"
-PLANS_MESSAGE = "📦 مدیریت پلن‌ها\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
 TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
+
+# Local messages that need dynamic values
+MY_CONFIGS_MESSAGE = "🔗 کانفیگ های من\n\nشما هنوز کانفیگ فعالی ندارید.\n\nبرای خرید سرویس جدید، روی دکمه «🛒 خرید» کلیک کنید."
+WALLET_MESSAGE = "💰 شارژ کیف پول\n\nموجودی فعلی شما: {balance} تومان\n\nبرای شارژ کیف پول، لطفاً با پشتیبانی تماس بگیرید."
 
 
 # Message handlers
@@ -276,7 +276,7 @@ async def start_handler(message: Message, bot):
             if db_user:
                 db_user.is_member = False
                 db.commit()
-            await message.answer(NOT_MEMBER_MESSAGE, parse_mode="HTML")
+            await message.answer(NOT_MEMBER_MESSAGE.format(channel_username=CHANNEL_USERNAME), parse_mode="HTML")
     except Exception as e:
         print(f"Error in start_handler: {e}")
         await message.answer("❌ خطایی رخ داد. لطفاً دوباره تلاش کنید.")
@@ -423,6 +423,17 @@ async def handle_admin_input(message: Message):
         state = admin_create_account_state[user_id]
         step = state.get("step")
         
+        if step == "name":
+            # Validate name input
+            account_name = text.strip()
+            if not account_name:
+                await message.answer("❌ لطفاً نام معتبر وارد کنید.", parse_mode="HTML")
+                return
+            state["name"] = account_name
+            state["step"] = "days"
+            await message.answer(f"✅ نام اکانت: {account_name}\n\nحالا لطفاً تعداد روز را وارد کنید:\n(عدد صحیح)", parse_mode="HTML")
+            return
+        
         if step == "days":
             # Validate days input
             text_normalized = normalize_numbers(text)
@@ -448,6 +459,7 @@ async def handle_admin_input(message: Message):
                     return
                 state["traffic"] = traffic
                 days = state.get("days", 0)
+                account_name = state.get("name", "")
                 
                 # Create WireGuard account with custom plan
                 try:
@@ -465,7 +477,7 @@ async def handle_admin_input(message: Message):
                         wg_client_dns=WG_CLIENT_DNS,
                         user_telegram_id=str(user_id),
                         plan_id=None,
-                        plan_name=f"پلن دلخواه {days} روز",
+                        plan_name=account_name,
                         duration_days=days
                     )
                     
@@ -473,11 +485,19 @@ async def handle_admin_input(message: Message):
                         client_ip = wg_result.get("client_ip", "N/A")
                         config = wg_result.get("config", "")
                         
-                        # Send to admin
+                        # Send summary + config file + QR to admin
                         await message.answer(
-                            f"✅ اکانت وایرگارد دلخواه ایجاد شد!\n\n📋 اطلاعات اکانت:\n• مدت: {days} روز\n• حجم: {traffic} گیگ\n• آی پی: {client_ip}\n\nکانفیگ:\n<code>{config}</code>",
+                            f"✅ اکانت وایرگارد دلخواه ایجاد شد!\n\n📋 اطلاعات اکانت:\n• مدت: {days} روز\n• حجم: {traffic} گیگ\n• آی پی: {client_ip}",
                             parse_mode="HTML"
                         )
+                        
+                        # Send config file
+                        if config:
+                            await send_wireguard_config_file(
+                                message,
+                                config,
+                                caption="📄 فایل کانفیگ WireGuard"
+                            )
                         
                         # Send QR if available
                         if wg_result.get("qr_code"):
@@ -681,6 +701,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                     f"• پلن: {plan.name}\n"
                     f"• مدت: {plan.duration_days} روز\n"
                     f"• حجم: {plan.traffic_gb} گیگ\n"
+                    f"• قیمت: {plan.price:,} تومان\n"
                     f"• آی‌پی: {client_ip}\n\n"
                     "📥 فایل کانفیگ و QR Code ارسال شد."
                 ),
@@ -713,6 +734,23 @@ async def callback_handler(callback: CallbackQuery, bot):
                 [InlineKeyboardButton(text="🍎 آیفون (iOS)", url="https://apps.apple.com/us/app/wireguard/id1441195209")],
                 [InlineKeyboardButton(text="📱 اندروید", url="https://play.google.com/store/apps/details?id=com.wireguard.android&hl=en")],
                 [InlineKeyboardButton(text="💻 ویندوز/مک/لینوکس", url="https://www.wireguard.com/install/")],
+                [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
+            ]),
+            parse_mode="HTML"
+        )
+    
+    elif data == "howto":
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        await callback.message.answer(
+            "📖 راهنمای اتصال به وی‌پی‌ان\n\n"
+            "برای اتصال به سرویس وی‌پی‌ان مراحل زیر را دنبال کنید:\n\n"
+            "1️⃣ نرم‌افزار WireGuard را نصب کنید\n"
+            "2️⃣ فایل کانفیگ را دریافت کنید\n"
+            "3️⃣ فایل را در نرم‌افزار ایمپورت کنید\n"
+            "4️⃣ به سرور متصل شوید\n\n"
+            "برای دریافت کانفیگ، به بخش «کانفیگ‌های من» مراجعه کنید.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 دریافت کانفیگ", callback_data="configs")],
                 [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
             ]),
             parse_mode="HTML"
@@ -846,7 +884,7 @@ async def callback_handler(callback: CallbackQuery, bot):
             if user:
                 await callback.message.answer(f"💰 شارژ کیف پول\n\nموجودی فعلی شما: {user.wallet_balance} تومان\n\nبرای شارژ کیف پول، لطفاً با پشتیبانی تماس بگیرید.", parse_mode="HTML")
             else:
-                await callback.message.answer(WALLET_MESSAGE, parse_mode="HTML")
+                await callback.message.answer(WALLET_MESSAGE.format(balance=0), parse_mode="HTML")
         finally:
             db.close()
 
@@ -1234,7 +1272,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                         wg_client_dns=WG_CLIENT_DNS,
                         user_telegram_id=str(user_id),
                         plan_id=plan.id,
-                        plan_name=plan.name,
+                        plan_name=f"wg-{user_id}",
                         duration_days=plan.duration_days
                     )
                     
@@ -1242,11 +1280,19 @@ async def callback_handler(callback: CallbackQuery, bot):
                         client_ip = wg_result.get("client_ip", "N/A")
                         config = wg_result.get("config", "")
                         
-                        # Send to admin
+                        # Send summary + config file + QR to admin
                         await callback.message.answer(
-                            f"✅ اکانت وایرگارد ایجاد شد!\n\n📋 اطلاعات اکانت:\n• پلن: {plan.name}\n• مدت: {plan.duration_days} روز\n• حجم: {plan.traffic_gb} گیگ\n• آی پی: {client_ip}\n\nکانفیگ:\n<code>{config}</code>",
+                            f"✅ اکانت وایرگارد ایجاد شد!\n\n📋 اطلاعات اکانت:\n• پلن: {plan.name}\n• مدت: {plan.duration_days} روز\n• حجم: {plan.traffic_gb} گیگ\n• قیمت: {plan.price:,} تومان\n• آی پی: {client_ip}",
                             parse_mode="HTML"
                         )
+                        
+                        # Send config file
+                        if config:
+                            await send_wireguard_config_file(
+                                callback.message,
+                                config,
+                                caption="📄 فایل کانفیگ WireGuard"
+                            )
                         
                         # Send QR if available
                         if wg_result.get("qr_code"):
@@ -1268,10 +1314,10 @@ async def callback_handler(callback: CallbackQuery, bot):
             db.close()
     
     elif data == "create_acc_custom":
-        # Start custom plan flow - ask for days
-        admin_create_account_state[user_id] = {"step": "days"}
+        # Start custom plan flow - ask for name first
+        admin_create_account_state[user_id] = {"step": "name"}
         await callback.message.answer(
-            "📝 ساخت پلن دلخواه\n\nلطفاً تعداد روز را وارد کنید:\n(عدد صحیح)",
+            "📝 ساخت پلن دلخواه\n\nلطفاً نام اکانت را وارد کنید:\n(مثلاً: اکانت شخصی یا نام کاربر)",
             parse_mode="HTML"
         )
     
@@ -1629,8 +1675,12 @@ async def callback_handler(callback: CallbackQuery, bot):
                 
                 # Send confirmation to admin
                 if wg_created:
+                    plan = db.query(Plan).filter(Plan.id == receipt.plan_id).first()
+                    plan_info = f"• پلن: {receipt.plan_name}\n"
+                    if plan:
+                        plan_info += f"• مدت: {plan.duration_days} روز\n• حجم: {plan.traffic_gb} گیگ\n• قیمت: {plan.price:,} تومان\n"
                     await callback.message.answer(
-                        f"✅ پرداخت تایید شد!\n\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n• کاربر: {receipt.user_telegram_id}\n\nحساب WireGuard ایجاد شد:\n• آی پی: {client_ip}",
+                        f"✅ پرداخت تایید شد!\n\n{plan_info}• مبلغ: {receipt.amount:,} تومان\n• کاربر: {receipt.user_telegram_id}\n\nحساب WireGuard ایجاد شد:\n• آی پی: {client_ip}",
                         reply_markup=get_receipt_done_keyboard(),
                         parse_mode="HTML"
                     )
