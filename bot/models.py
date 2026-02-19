@@ -21,6 +21,7 @@ class User(Base):
     is_member = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
     wallet_balance = Column(Integer, default=0)
+    has_used_test_account = Column(Boolean, default=False)
     joined_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):

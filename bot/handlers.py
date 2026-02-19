@@ -234,6 +234,7 @@ ADMIN_MESSAGE = "⚙️ پنل مدیریت\n\nیکی از گزینه‌های �
 PANELS_MESSAGE = "🖥️ مدیریت پنل‌ها\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
 SEARCH_USER_MESSAGE = "🔍 جستجوی کاربر\n\nلطفاً شناسه، نام کاربری یا نام کامل کاربر را وارد کنید:"
 PLANS_MESSAGE = "📦 مدیریت پلن‌ها\n\nیکی از گزینه‌های زیر را انتخاب کنید:"
+TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
 
 
 # Message handlers
@@ -621,6 +622,87 @@ async def callback_handler(callback: CallbackQuery, bot):
         finally:
             db.close()
     
+    elif data == "test_account_create":
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(
+                db,
+                str(user_id),
+                callback.from_user.username,
+                callback.from_user.first_name,
+                callback.from_user.last_name,
+            )
+            if user.has_used_test_account:
+                await callback.message.answer("❌ شما قبلاً از اکانت تست استفاده کرده‌اید و فقط یک‌بار مجاز هستید.", parse_mode="HTML")
+                return
+
+            plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME, Plan.is_active == True).first()
+            if not plan:
+                await callback.message.answer("❌ پلن «اکانت تست» یافت نشد یا غیرفعال است.", parse_mode="HTML")
+                return
+
+            try:
+                import wireguard
+                wg_result = wireguard.create_wireguard_account(
+                    mikrotik_host=MIKROTIK_HOST,
+                    mikrotik_user=MIKROTIK_USER,
+                    mikrotik_pass=MIKROTIK_PASS,
+                    mikrotik_port=MIKROTIK_PORT,
+                    wg_interface=WG_INTERFACE,
+                    wg_server_public_key=WG_SERVER_PUBLIC_KEY,
+                    wg_server_endpoint=WG_SERVER_ENDPOINT,
+                    wg_server_port=WG_SERVER_PORT,
+                    wg_client_network_base=WG_CLIENT_NETWORK_BASE,
+                    wg_client_dns=WG_CLIENT_DNS,
+                    user_telegram_id=str(user_id),
+                    plan_id=plan.id,
+                    plan_name=plan.name,
+                    duration_days=plan.duration_days,
+                )
+            except Exception as e:
+                await callback.message.answer(f"❌ خطا در ایجاد اکانت تست: {str(e)}", parse_mode="HTML")
+                return
+
+            if not wg_result.get("success"):
+                await callback.message.answer(
+                    f"❌ خطا در ایجاد اکانت تست: {wg_result.get('error', 'خطای نامشخص')}",
+                    parse_mode="HTML"
+                )
+                return
+
+            user.has_used_test_account = True
+            db.commit()
+
+            client_ip = wg_result.get("client_ip", "N/A")
+            config_text = wg_result.get("config", "")
+            await callback.message.answer(
+                (
+                    f"✅ اکانت تست شما ساخته شد.\n\n"
+                    f"• پلن: {plan.name}\n"
+                    f"• مدت: {plan.duration_days} روز\n"
+                    f"• حجم: {plan.traffic_gb} گیگ\n"
+                    f"• آی‌پی: {client_ip}\n\n"
+                    "📥 فایل کانفیگ و QR Code ارسال شد."
+                ),
+                parse_mode="HTML"
+            )
+
+            if config_text:
+                await send_wireguard_config_file(
+                    callback.message,
+                    config_text,
+                    caption="📄 فایل کانفیگ WireGuard (اکانت تست)",
+                )
+
+            if wg_result.get("qr_code"):
+                await send_qr_code(
+                    callback.message,
+                    wg_result.get("qr_code"),
+                    caption="📷 QR Code اکانت تست",
+                )
+        finally:
+            db.close()
+
     elif data == "software":
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(

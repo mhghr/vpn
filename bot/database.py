@@ -53,3 +53,4 @@ def init_db():
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS counter_reset_flag BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS low_traffic_alert_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS expiry_alert_sent BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS has_used_test_account BOOLEAN DEFAULT FALSE"))
