@@ -85,6 +85,54 @@ def init_db():
         # Payment receipt columns
         conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER"))
 
+        # Server columns (for legacy databases created before service type support)
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS service_type_id INTEGER"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS host VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS api_port INTEGER DEFAULT 8728"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS username VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS password VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_interface VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_server_public_key VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_server_endpoint VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_server_port INTEGER"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_client_network_base VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_client_dns VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS capacity INTEGER DEFAULT 100"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"))
+
+        conn.execute(text("""
+            INSERT INTO service_types (code, name, is_active, created_at)
+            VALUES
+                ('wireguard', 'WireGuard', TRUE, NOW()),
+                ('v2ray', 'V2Ray', TRUE, NOW())
+            ON CONFLICT (code) DO NOTHING
+        """))
+
+        # Backfill missing service_type_id values to WireGuard for old server rows
+        conn.execute(text("""
+            UPDATE servers
+            SET service_type_id = st.id
+            FROM service_types st
+            WHERE st.code = 'wireguard'
+              AND servers.service_type_id IS NULL
+        """))
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = 'fk_servers_service_type_id'
+                ) THEN
+                    ALTER TABLE servers
+                    ADD CONSTRAINT fk_servers_service_type_id
+                    FOREIGN KEY (service_type_id) REFERENCES service_types(id)
+                    ON DELETE RESTRICT;
+                END IF;
+            END;
+            $$;
+        """))
+
         # Try to create indexes for tables that may not exist yet
         try:
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_servers_service_type_id ON servers(service_type_id)"))
@@ -99,7 +147,7 @@ def init_db():
         except Exception:
             pass
 
-        # Try to insert service types if table exists
+        # Keep service type defaults present in case of partial startup failures
         try:
             conn.execute(text("""
                 INSERT INTO service_types (code, name, is_active, created_at)
