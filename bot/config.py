@@ -53,6 +53,12 @@ WG_CLIENT_NETWORK_BASE = ip_range.rsplit('.', 1)[0] + ".0"  # e.g., 192.168.30.0
 
 WG_CLIENT_DNS = os.getenv("WIREGUARD_DNS", "8.8.8.8,1.0.0.1")
 
+
+# ==================== Representative Bot Configuration ====================
+AGENT_BOT_DOCKER_IMAGE = os.getenv("AGENT_BOT_DOCKER_IMAGE", "vpn-agent-bot:latest")
+AGENT_BOT_CONTAINER_PREFIX = os.getenv("AGENT_BOT_CONTAINER_PREFIX", "vpn_agent")
+AGENT_BOT_DOCKER_NETWORK = os.getenv("AGENT_BOT_DOCKER_NETWORK", "")
+
 # ==================== Admin States (In-Memory) ====================
 # These are temporary states stored in memory for admin operations
 admin_plan_state = {}  # For plan creation/editing flow
@@ -65,3 +71,5 @@ admin_receipt_reject_state = {}  # For admin reject-reason flow
 admin_service_type_state = {}  # For service type management flow
 admin_server_state = {}  # For server management flow
 admin_tutorial_state = {}  # For tutorial creation flow
+
+admin_representative_state = {}  # For representative management flow

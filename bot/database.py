@@ -36,6 +36,7 @@ def init_db():
         PaymentReceipt,
         WireGuardConfig,
         GiftCode,
+        Representative,
     )
 
     Base.metadata.create_all(bind=engine)
@@ -84,6 +85,14 @@ def init_db():
 
         # Payment receipt columns
         conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER"))
+        conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS representative_id INTEGER"))
+
+        # Representative columns
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS representative_id INTEGER"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS representative_id INTEGER"))
+        conn.execute(text("ALTER TABLE representatives ADD COLUMN IF NOT EXISTS total_configs INTEGER DEFAULT 0"))
+        conn.execute(text("ALTER TABLE representatives ADD COLUMN IF NOT EXISTS total_traffic_bytes BIGINT DEFAULT 0"))
+        conn.execute(text("ALTER TABLE representatives ADD COLUMN IF NOT EXISTS total_sales_amount BIGINT DEFAULT 0"))
 
         # Server columns (for legacy databases created before service type support)
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS service_type_id INTEGER"))

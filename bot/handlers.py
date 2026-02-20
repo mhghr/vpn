@@ -1,6 +1,8 @@
 import json
 import os
 import io
+import re
+import subprocess
 from datetime import datetime
 from datetime import datetime, timedelta
 
@@ -8,16 +10,17 @@ from aiogram import Dispatcher
 from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile
 
 from database import SessionLocal, engine
-from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode, ServiceType, Server, PlanServerMap, ServiceTutorial
+from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode, ServiceType, Server, PlanServerMap, ServiceTutorial, Representative
 from config import (
     CHANNEL_ID, CHANNEL_USERNAME, ADMIN_IDS,
     admin_plan_state, admin_create_account_state, user_payment_state,
     admin_user_search_state, admin_wallet_adjust_state, admin_discount_state, admin_receipt_reject_state,
-    admin_service_type_state, admin_server_state, admin_tutorial_state,
+    admin_service_type_state, admin_server_state, admin_tutorial_state, admin_representative_state,
     CARD_NUMBER, CARD_HOLDER,
     MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT,
     WG_INTERFACE, WG_SERVER_PUBLIC_KEY, WG_SERVER_ENDPOINT, WG_SERVER_PORT,
-    WG_CLIENT_NETWORK_BASE, WG_CLIENT_DNS
+    WG_CLIENT_NETWORK_BASE, WG_CLIENT_DNS,
+    AGENT_BOT_DOCKER_IMAGE, AGENT_BOT_CONTAINER_PREFIX, AGENT_BOT_DOCKER_NETWORK
 )
 
 from keyboards import (
@@ -30,7 +33,8 @@ from keyboards import (
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
     get_admin_user_configs_keyboard, get_test_account_keyboard, get_service_types_keyboard,
     get_servers_service_type_keyboard, get_servers_keyboard, get_server_action_keyboard,
-    get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard
+    get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard,
+    get_representatives_keyboard, get_representative_action_keyboard
 )
 
 from texts import (
@@ -107,6 +111,48 @@ def get_user(db, telegram_id: str):
 
 def is_admin(telegram_id: str) -> bool:
     return str(telegram_id) in ADMIN_IDS
+
+
+def _sanitize_container_name(name: str) -> str:
+    base = re.sub(r"[^a-zA-Z0-9_-]", "-", name or "agent")
+    return base.strip("-").lower() or "agent"
+
+
+def start_representative_container(rep: Representative) -> tuple[bool, str]:
+    container_name = f"{AGENT_BOT_CONTAINER_PREFIX}_{rep.id}_{_sanitize_container_name(rep.name)}"
+    env_vars = [
+        "-e", f"BOT_TOKEN={rep.bot_token}",
+        "-e", f"ADMIN_ID={rep.admin_telegram_id}",
+        "-e", f"CHANNEL_ID={rep.channel_id}",
+        "-e", f"CHANNEL_USERNAME={rep.channel_id}",
+    ]
+    cmd = ["docker", "run", "-d", "--restart", "unless-stopped", "--name", container_name]
+    if AGENT_BOT_DOCKER_NETWORK:
+        cmd += ["--network", AGENT_BOT_DOCKER_NETWORK]
+    cmd += env_vars + [AGENT_BOT_DOCKER_IMAGE]
+
+    try:
+        subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        run_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        rep.docker_container_name = container_name
+        return True, (run_result.stdout.strip() or "کانتینر اجرا شد.")
+    except Exception as e:
+        return False, str(e)
+
+
+def stop_representative_container(container_name: str) -> tuple[bool, str]:
+    if not container_name:
+        return False, "نام کانتینر ثبت نشده است."
+    try:
+        result = subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True, check=True)
+        return True, (result.stdout.strip() or "کانتینر متوقف و حذف شد.")
+    except Exception as e:
+        return False, str(e)
+
+
+def format_traffic(total_bytes: int) -> str:
+    gb = (total_bytes or 0) / (1024 ** 3)
+    return f"{gb:.2f} GB"
 
 
 async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int = None):
@@ -660,6 +706,73 @@ async def handle_admin_input(message: Message):
             )
             return
 
+    # Handle representative create flow
+    if user_id in admin_representative_state:
+        state = admin_representative_state[user_id]
+        step = state.get("step")
+
+        if step == "name":
+            state["name"] = text.strip()
+            state["step"] = "bot_token"
+            await message.answer("توکن ربات نمایندگی را وارد کنید:", parse_mode="HTML")
+            return
+
+        if step == "bot_token":
+            if ":" not in text.strip():
+                await message.answer("❌ توکن ربات معتبر نیست.", parse_mode="HTML")
+                return
+            state["bot_token"] = text.strip()
+            state["step"] = "admin_id"
+            await message.answer("آیدی تلگرام ادمین نمایندگی را وارد کنید:", parse_mode="HTML")
+            return
+
+        if step == "admin_id":
+            normalized = normalize_numbers(text.strip())
+            if not normalized.isdigit():
+                await message.answer("❌ آیدی ادمین باید عددی باشد.", parse_mode="HTML")
+                return
+            state["admin_telegram_id"] = normalized
+            state["step"] = "channel_id"
+            await message.answer("آیدی یا یوزرنیم کانال نمایندگی را وارد کنید (مثل @mychannel یا -100...):", parse_mode="HTML")
+            return
+
+        if step == "channel_id":
+            channel_id = text.strip().replace(" ", "")
+            if not channel_id:
+                await message.answer("❌ آیدی کانال نامعتبر است.", parse_mode="HTML")
+                return
+
+            db = SessionLocal()
+            try:
+                rep = Representative(
+                    name=state.get("name") or "نمایندگی",
+                    bot_token=state.get("bot_token"),
+                    admin_telegram_id=state.get("admin_telegram_id"),
+                    channel_id=channel_id,
+                    is_active=True,
+                )
+                db.add(rep)
+                db.commit()
+                db.refresh(rep)
+
+                ok, output = start_representative_container(rep)
+                rep.is_active = ok
+                db.commit()
+
+                status = "✅ نمایندگی ساخته شد و کانتینر اجرا شد." if ok else "⚠️ نمایندگی ثبت شد اما اجرای کانتینر ناموفق بود."
+                await message.answer(
+                    f"{status}\n\n"
+                    f"• نام: {rep.name}\n"
+                    f"• کانال: {rep.channel_id}\n"
+                    f"• کانتینر: {rep.docker_container_name or '-'}\n"
+                    f"• نتیجه: {output[:500]}",
+                    parse_mode="HTML"
+                )
+            finally:
+                db.close()
+                admin_representative_state.pop(user_id, None)
+            return
+
     # Handle server create/edit flow
     if user_id in admin_server_state:
         state = admin_server_state[user_id]
@@ -1060,7 +1173,7 @@ async def callback_handler(callback: CallbackQuery, bot):
     data = callback.data
     user_id = callback.from_user.id
     
-    if data.startswith(("admin_", "panel_", "plan_")) or data == "admin":
+    if data.startswith(("admin_", "panel_", "plan_", "rep_")) or data == "admin":
         if not is_admin(user_id):
             await callback.answer("❌ شما دسترسی مدیریت ندارید.", show_alert=True)
             return
@@ -1388,6 +1501,96 @@ async def callback_handler(callback: CallbackQuery, bot):
     elif data == "admin_panels":
         pending_panel = load_pending_panel()
         await callback.message.answer(PANELS_MESSAGE, reply_markup=get_panels_keyboard(pending_panel), parse_mode="HTML")
+
+    elif data == "admin_representatives":
+        db = SessionLocal()
+        try:
+            reps = db.query(Representative).order_by(Representative.created_at.desc()).all()
+            await callback.message.answer(
+                "🤝 مدیریت نمایندگی‌ها\n\nلیست نمایندگی‌ها را از پایین مدیریت کنید:",
+                reply_markup=get_representatives_keyboard(reps),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
+    elif data == "rep_add":
+        admin_representative_state[user_id] = {"step": "name"}
+        await callback.message.answer("نام نمایندگی را وارد کنید:", parse_mode="HTML")
+
+    elif data.startswith("rep_view_"):
+        rep_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            rep = db.query(Representative).filter(Representative.id == rep_id).first()
+            if not rep:
+                await callback.message.answer("❌ نمایندگی یافت نشد.", parse_mode="HTML")
+                return
+
+            configs_count = db.query(WireGuardConfig).filter(WireGuardConfig.representative_id == rep.id).count()
+            payments_total = db.query(PaymentReceipt).filter(PaymentReceipt.representative_id == rep.id, PaymentReceipt.status == "approved").all()
+            dynamic_sales = sum(r.amount or 0 for r in payments_total)
+            traffic_rows = db.query(WireGuardConfig).filter(WireGuardConfig.representative_id == rep.id).all()
+            dynamic_traffic = sum((c.cumulative_rx_bytes or 0) + (c.cumulative_tx_bytes or 0) for c in traffic_rows)
+
+            total_configs = max(rep.total_configs or 0, configs_count)
+            total_sales = max(rep.total_sales_amount or 0, dynamic_sales)
+            total_traffic = max(rep.total_traffic_bytes or 0, dynamic_traffic)
+
+            msg = (
+                f"🤝 نمایندگی: {rep.name}\n"
+                f"• وضعیت: {'🟢 فعال' if rep.is_active else '🔴 غیرفعال'}\n"
+                f"• کانال: {rep.channel_id}\n"
+                f"• ادمین نماینده: {rep.admin_telegram_id}\n"
+                f"• تعداد کانفیگ‌ها: {total_configs}\n"
+                f"• ترافیک مصرفی: {format_traffic(total_traffic)}\n"
+                f"• مجموع هزینه‌ها: {total_sales:,} تومان\n"
+                f"• کانتینر: {rep.docker_container_name or '-'}"
+            )
+            await callback.message.answer(msg, reply_markup=get_representative_action_keyboard(rep.id, rep.is_active), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("rep_toggle_"):
+        rep_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            rep = db.query(Representative).filter(Representative.id == rep_id).first()
+            if not rep:
+                await callback.message.answer("❌ نمایندگی یافت نشد.", parse_mode="HTML")
+                return
+
+            if rep.is_active:
+                ok, output = stop_representative_container(rep.docker_container_name)
+                rep.is_active = False
+                status = "⏸️ نمایندگی غیرفعال شد." if ok else "⚠️ وضعیت ذخیره شد ولی توقف کانتینر خطا داشت."
+            else:
+                ok, output = start_representative_container(rep)
+                rep.is_active = ok
+                status = "▶️ نمایندگی فعال شد." if ok else "⚠️ اجرای کانتینر موفق نبود."
+
+            db.commit()
+            await callback.message.answer(f"{status}\n{output[:400]}", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("rep_delete_"):
+        rep_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            rep = db.query(Representative).filter(Representative.id == rep_id).first()
+            if not rep:
+                await callback.message.answer("❌ نمایندگی یافت نشد.", parse_mode="HTML")
+                return
+
+            if rep.docker_container_name:
+                stop_representative_container(rep.docker_container_name)
+
+            db.delete(rep)
+            db.commit()
+            await callback.message.answer("✅ نمایندگی حذف شد.", parse_mode="HTML")
+        finally:
+            db.close()
     
     elif data == "admin_pending_panel":
         pending = load_pending_panel()
