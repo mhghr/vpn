@@ -25,7 +25,7 @@ print("Database initialized", file=sys.stderr)
 bot = Bot(token=TOKEN)
 print("Bot instance created", file=sys.stderr)
 
-THREE_GB_IN_BYTES = 3 * (1024 ** 3)
+TWO_GB_IN_BYTES = 2 * (1024 ** 3)
 TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
 
 
@@ -50,17 +50,17 @@ async def notify_plan_thresholds_worker():
 
                 # Remaining traffic in bytes
                 plan_traffic_bytes = plan.traffic_gb * (1024 ** 3)
-                consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+                consumed_bytes = config.cumulative_rx_bytes or 0
                 remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0)
 
                 # Notify for low traffic once
-                if not config.low_traffic_alert_sent and remaining_bytes <= THREE_GB_IN_BYTES:
+                if not config.low_traffic_alert_sent and remaining_bytes <= TWO_GB_IN_BYTES:
                     try:
                         await bot.send_message(
                             chat_id=int(config.user_telegram_id),
                             text=(
                                 "⚠️ ترافیک سرویس شما رو به اتمام است.\n"
-                                "کمتر از ۳ گیگابایت از حجم پلن شما باقی مانده است.\n"
+                                "کمتر از ۲ گیگابایت از حجم پلن شما باقی مانده است.\n"
                                 "لطفاً برای تمدید یا خرید پلن جدید اقدام کنید."
                             )
                         )
@@ -70,13 +70,13 @@ async def notify_plan_thresholds_worker():
 
                 # Notify for expiry once
                 days_left = (expires_at - now).total_seconds() / 86400
-                if not config.expiry_alert_sent and 0 <= days_left <= 3:
+                if not config.expiry_alert_sent and 0 <= days_left <= 2:
                     try:
                         await bot.send_message(
                             chat_id=int(config.user_telegram_id),
                             text=(
                                 "⏳ پلن شما رو به اتمام است.\n"
-                                "کمتر از ۳ روز تا پایان اعتبار سرویس شما باقی مانده است.\n"
+                                "کمتر از ۲ روز تا پایان اعتبار سرویس شما باقی مانده است.\n"
                                 "لطفاً برای تمدید سرویس اقدام کنید."
                             )
                         )
@@ -91,7 +91,7 @@ async def notify_plan_thresholds_worker():
         finally:
             db.close()
 
-        await asyncio.sleep(1800)
+        await asyncio.sleep(180)
 
 
 async def cleanup_expired_test_accounts_worker():
@@ -102,7 +102,7 @@ async def cleanup_expired_test_accounts_worker():
             now = datetime.utcnow()
             test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
             if not test_plan:
-                await asyncio.sleep(300)
+                await asyncio.sleep(180)
                 continue
 
             configs = db.query(WireGuardConfig).filter(
@@ -113,7 +113,7 @@ async def cleanup_expired_test_accounts_worker():
             for config in configs:
                 expires_at = config.expires_at or (config.created_at + timedelta(days=test_plan.duration_days))
                 traffic_limit_bytes = (test_plan.traffic_gb or 0) * (1024 ** 3)
-                consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+                consumed_bytes = config.cumulative_rx_bytes or 0
                 is_expired = bool(expires_at and expires_at <= now)
                 is_exhausted = bool(traffic_limit_bytes and consumed_bytes >= traffic_limit_bytes)
 
@@ -152,11 +152,11 @@ async def cleanup_expired_test_accounts_worker():
         finally:
             db.close()
 
-        await asyncio.sleep(300)
+        await asyncio.sleep(180)
 
 
 async def usage_sync_worker():
-    """Sync wireguard usage counters every 5 minutes."""
+    """Sync wireguard usage counters every 3 minutes."""
     while True:
         try:
             sync_wireguard_usage_counters(
@@ -175,7 +175,7 @@ async def usage_sync_worker():
             )
         except Exception as e:
             print(f"Usage sync worker error: {e}", file=sys.stderr)
-        await asyncio.sleep(300)
+        await asyncio.sleep(180)
 
 
 async def main():

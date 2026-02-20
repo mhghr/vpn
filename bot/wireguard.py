@@ -255,7 +255,7 @@ def disable_expired_or_exhausted_configs(
 
             expires_at = config.expires_at or (config.created_at + timedelta(days=plan.duration_days))
             plan_traffic_bytes = plan.traffic_gb * (1024 ** 3)
-            consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+            consumed_bytes = config.cumulative_rx_bytes or 0
             exhausted_traffic = consumed_bytes >= plan_traffic_bytes
             expired_time = expires_at <= now
 

@@ -175,6 +175,17 @@ def get_plan_field_prompt(field: str, current_value: str = None) -> str:
     return msg
 
 
+def get_plan_creation_summary(data: dict) -> str:
+    return (
+        "➕ ایجاد پلن جدید\n\n"
+        "اطلاعات وارد شده:\n"
+        f"• نام: {data.get('name', '➖')}\n"
+        f"• مدت: {data.get('days', '➖')} روز\n"
+        f"• ترافیک: {data.get('traffic', '➖')} گیگ\n"
+        f"• قیمت: {data.get('price', '➖')} تومان"
+    )
+
+
 def gregorian_to_jalali(g_date: datetime):
     gy = g_date.year - 1600
     gm = g_date.month - 1
@@ -525,7 +536,97 @@ async def handle_admin_input(message: Message):
     
     if user_id in admin_plan_state:
         state = admin_plan_state[user_id]
+
+        if state.get("action") == "test_account_setup":
+            step = state.get("step")
+            text = normalize_numbers(text)
+            try:
+                value = int(text)
+                if value <= 0:
+                    raise ValueError
+            except ValueError:
+                await message.answer("❌ لطفاً یک عدد صحیح بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
+                return
+
+            if step == "days":
+                state["days"] = value
+                state["step"] = "traffic"
+                await message.answer("🌐 لطفاً حجم اکانت تست را به گیگ وارد کنید:", parse_mode="HTML")
+                return
+
+            if step == "traffic":
+                days = state.get("days")
+                traffic = value
+                db = SessionLocal()
+                try:
+                    test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+                    if test_plan:
+                        test_plan.duration_days = days
+                        test_plan.traffic_gb = traffic
+                        test_plan.price = 0
+                        test_plan.is_active = True
+                        test_plan.description = "پلن تست یک‌بار مصرف"
+                        action_text = "به‌روزرسانی شد"
+                    else:
+                        test_plan = Plan(
+                            name=TEST_ACCOUNT_PLAN_NAME,
+                            duration_days=days,
+                            traffic_gb=traffic,
+                            price=0,
+                            is_active=True,
+                            description="پلن تست یک‌بار مصرف",
+                        )
+                        db.add(test_plan)
+                        action_text = "ایجاد شد"
+
+                    db.commit()
+                    await message.answer(
+                        f"✅ اکانت تست با موفقیت {action_text}.\n\n• مدت: {days} روز\n• حجم: {traffic} گیگ",
+                        parse_mode="HTML"
+                    )
+                    all_plans = db.query(Plan).all()
+                    await message.answer(PLANS_MESSAGE, reply_markup=get_plans_keyboard(all_plans), parse_mode="HTML")
+                finally:
+                    db.close()
+                    admin_plan_state.pop(user_id, None)
+                return
+
+        step = state.get("step")
         field = state.get("field")
+
+        if step:
+            if step in ["days", "traffic", "price"]:
+                text = normalize_numbers(text)
+                try:
+                    int(text)
+                except ValueError:
+                    await message.answer("❌ لطفاً یک عدد صحیح وارد کنید.", parse_mode="HTML")
+                    return
+
+            state.setdefault("data", {})[step] = text
+
+            next_steps = {
+                "name": "days",
+                "days": "traffic",
+                "traffic": "price",
+            }
+
+            next_step = next_steps.get(step)
+            if next_step:
+                state["step"] = next_step
+                await message.answer(
+                    get_plan_creation_summary(state["data"]),
+                    parse_mode="HTML"
+                )
+                await message.answer(get_plan_field_prompt(next_step), parse_mode="HTML")
+            else:
+                state.pop("step", None)
+                await message.answer(
+                    get_plan_creation_summary(state["data"]),
+                    reply_markup=get_plan_edit_keyboard(plan_id=None),
+                    parse_mode="HTML"
+                )
+            return
         
         if field:
             if field in ["days", "traffic", "price"]:
@@ -535,41 +636,16 @@ async def handle_admin_input(message: Message):
                 except ValueError:
                     await message.answer("❌ لطفاً یک عدد صحیح وارد کنید.", parse_mode="HTML")
                     return
-            state["data"][field] = text
+            state.setdefault("data", {})[field] = text
             plan_id = state.get("plan_id", "new")
             action = "ویرایش" if state.get("action") == "edit" else "ایجاد"
             if plan_id == "new":
-                await message.answer(f"➕ {action} پلن جدید\n\nاطلاعات وارد شده:\n• نام: {state['data'].get('name', '➖')}\n• مدت: {state['data'].get('days', '➖')} روز\n• ترافیک: {state['data'].get('traffic', '➖')} گیگ\n• قیمت: {state['data'].get('price', '➖')} تومان\n• توضیحات: {state['data'].get('description', '➖')}", reply_markup=get_plan_edit_keyboard(plan_id=None, plan_data=state['data']), parse_mode="HTML")
+                await message.answer(f"➕ {action} پلن جدید\n\nاطلاعات وارد شده:\n• نام: {state['data'].get('name', '➖')}\n• مدت: {state['data'].get('days', '➖')} روز\n• ترافیک: {state['data'].get('traffic', '➖')} گیگ\n• قیمت: {state['data'].get('price', '➖')} تومان\n• توضیحات: {state['data'].get('description', '➖')}", reply_markup=get_plan_edit_keyboard(plan_id=None), parse_mode="HTML")
             else:
-                await message.answer(f"✏️ {action} پلن\n\nاطلاعات وارد شده:\n• نام: {state['data'].get('name', '➖')}\n• مدت: {state['data'].get('days', '➖')} روز\n• ترافیک: {state['data'].get('traffic', '➖')} گیگ\n• قیمت: {state['data'].get('price', '➖')} تومان\n• توضیحات: {state['data'].get('description', '➖')}", reply_markup=get_plan_edit_keyboard(plan_id=int(plan_id), plan_data=state['data']), parse_mode="HTML")
+                await message.answer(f"✏️ {action} پلن\n\nاطلاعات وارد شده:\n• نام: {state['data'].get('name', '➖')}\n• مدت: {state['data'].get('days', '➖')} روز\n• ترافیک: {state['data'].get('traffic', '➖')} گیگ\n• قیمت: {state['data'].get('price', '➖')} تومان\n• توضیحات: {state['data'].get('description', '➖')}", reply_markup=get_plan_edit_keyboard(plan_id=int(plan_id)), parse_mode="HTML")
             return
-        
-        # Parse input format: name-volume-days-price (with optional spaces around hyphens)
-        parts = [p.strip() for p in text.split("-") if p.strip()]
-        if len(parts) >= 4:
-            try:
-                plan_name = "-".join(parts[:-3]).strip()  # Allow hyphens in plan name
-                # Convert Persian/Arabic numbers to English
-                traffic = int(normalize_numbers(parts[-3].strip()))
-                days = int(normalize_numbers(parts[-2].strip()))
-                price = int(normalize_numbers(parts[-1].strip()))
-                
-                db = SessionLocal()
-                try:
-                    plan = Plan(name=plan_name, duration_days=days, traffic_gb=traffic, price=price, is_active=True)
-                    db.add(plan)
-                    db.commit()
-                    del admin_plan_state[user_id]
-                    await message.answer(f"✅ پلن «{plan_name}» با موفقیت ایجاد شد!\n\n• حجم: {traffic} گیگ\n• مدت: {days} روز\n• قیمت: {price} تومان", parse_mode="HTML")
-                    # Show the plans list
-                    all_plans = db.query(Plan).all()
-                    await message.answer(PLANS_MESSAGE, reply_markup=get_plans_keyboard(all_plans), parse_mode="HTML")
-                finally:
-                    db.close()
-            except Exception as e:
-                await message.answer(f"❌ خطا: {str(e)}", parse_mode="HTML")
-        else:
-            await message.answer("❌ فرمت نادرست!\n\nلطفاً به این فرمت وارد کنید:\nنام-حجم-روز-قیمت\n\nمثال: وی پی ان-50-30-300000", parse_mode="HTML")
+
+        await message.answer("❌ لطفاً از دکمه‌های مدیریت پلن استفاده کنید.", parse_mode="HTML")
         return
     
     if user_id in admin_user_search_state:
@@ -799,7 +875,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                 if plan:
                     plan_traffic_bytes = (plan.traffic_gb or 0) * (1024 ** 3)
 
-            consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+            consumed_bytes = config.cumulative_rx_bytes or 0
             remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0) if plan_traffic_bytes else 0
             expires_at = config.expires_at
             if not expires_at and plan and plan.duration_days:
@@ -830,6 +906,9 @@ async def callback_handler(callback: CallbackQuery, bot):
             )
         finally:
             db.close()
+
+    elif data.startswith("cfg_renew_unavailable_"):
+        await callback.message.answer("ℹ️ گزینه تمدید زمانی فعال می‌شود که سرویس غیرفعال یا منقضی شده باشد.", parse_mode="HTML")
 
     elif data.startswith("cfg_renew_"):
         config_id = int(data.replace("cfg_renew_", ""))
@@ -1058,7 +1137,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                 if plan:
                     plan_traffic_bytes = (plan.traffic_gb or 0) * (1024 ** 3)
 
-            consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+            consumed_bytes = config.cumulative_rx_bytes or 0
             remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0) if plan_traffic_bytes else 0
             expires_at = config.expires_at
             if not expires_at and plan and plan.duration_days:
@@ -1333,20 +1412,29 @@ async def callback_handler(callback: CallbackQuery, bot):
         finally:
             db.close()
     
-    elif data == "plan_create":
-        admin_plan_state[user_id] = {"action": "create", "plan_id": "new", "data": {}}
+    elif data == "plan_create_test_account":
+        admin_plan_state[user_id] = {"action": "test_account_setup", "step": "days"}
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(
-            "➕ ایجاد پلن جدید\n\n"
-            "📋 لطفاً اطلاعات پلن را به این فرمت وارد کنید:\n\n"
-            "نام-حجم(گیگ)-روز-قیمت(تومان)\n\n"
-            "مثال:\n"
-            "وی پی ان پریمیوم-50-30-300000",
+            "🧪 افزودن اکانت تست\n\nلطفاً تعداد روز اکانت تست را وارد کنید:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔙 انصراف", callback_data="admin_plans")]
             ]),
             parse_mode="HTML"
         )
+
+    elif data == "plan_create":
+        admin_plan_state[user_id] = {"action": "create", "plan_id": "new", "step": "name", "data": {}}
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        await callback.message.answer(
+            "➕ ایجاد پلن جدید\n\n"
+            "لطفاً اطلاعات پلن را مرحله‌به‌مرحله وارد کنید.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 انصراف", callback_data="admin_plans")]
+            ]),
+            parse_mode="HTML"
+        )
+        await callback.message.answer(get_plan_field_prompt("name"), parse_mode="HTML")
     
     elif data.startswith("plan_view_"):
         plan_id = int(data.split("_")[-1])
@@ -1371,15 +1459,7 @@ async def callback_handler(callback: CallbackQuery, bot):
             if plan:
                 admin_plan_state[user_id] = {"action": "edit", "plan_id": plan_id, "data": {"name": plan.name, "days": str(plan.duration_days), "traffic": str(plan.traffic_gb), "price": str(plan.price), "description": plan.description or ""}}
                 msg = f"✏️ ویرایش پلن: {plan.name}\n\nمی‌توانید هر فیلدی را که می‌خواهید تغییر دهید:"
-                # Prepare plan data for keyboard
-                plan_data = {
-                    "name": plan.name,
-                    "days": str(plan.duration_days),
-                    "traffic": str(plan.traffic_gb),
-                    "price": str(plan.price),
-                    "description": plan.description or ""
-                }
-                await callback.message.answer(msg, reply_markup=get_plan_edit_keyboard(plan_id, plan_data), parse_mode="HTML")
+                await callback.message.answer(msg, reply_markup=get_plan_edit_keyboard(plan_id), parse_mode="HTML")
             else:
                 await callback.message.answer("❌ پلن یافت نشد.", parse_mode="HTML")
         finally:
@@ -1428,32 +1508,37 @@ async def callback_handler(callback: CallbackQuery, bot):
     
     elif data.startswith("plan_set_name_"):
         plan_id = data.split("_")[-1]
-        current = admin_plan_state.get(user_id, {}).get("data", {}).get("name", "")
-        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "name"}
+        current_state = admin_plan_state.get(user_id, {})
+        current = current_state.get("data", {}).get("name", "")
+        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "name", "data": current_state.get("data", {})}
         await callback.message.answer(get_plan_field_prompt("name", current), parse_mode="HTML")
     
     elif data.startswith("plan_set_days_"):
         plan_id = data.split("_")[-1]
-        current = admin_plan_state.get(user_id, {}).get("data", {}).get("days", "")
-        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "days"}
+        current_state = admin_plan_state.get(user_id, {})
+        current = current_state.get("data", {}).get("days", "")
+        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "days", "data": current_state.get("data", {})}
         await callback.message.answer(get_plan_field_prompt("days", current), parse_mode="HTML")
     
     elif data.startswith("plan_set_traffic_"):
         plan_id = data.split("_")[-1]
-        current = admin_plan_state.get(user_id, {}).get("data", {}).get("traffic", "")
-        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "traffic"}
+        current_state = admin_plan_state.get(user_id, {})
+        current = current_state.get("data", {}).get("traffic", "")
+        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "traffic", "data": current_state.get("data", {})}
         await callback.message.answer(get_plan_field_prompt("traffic", current), parse_mode="HTML")
     
     elif data.startswith("plan_set_price_"):
         plan_id = data.split("_")[-1]
-        current = admin_plan_state.get(user_id, {}).get("data", {}).get("price", "")
-        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "price"}
+        current_state = admin_plan_state.get(user_id, {})
+        current = current_state.get("data", {}).get("price", "")
+        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "price", "data": current_state.get("data", {})}
         await callback.message.answer(get_plan_field_prompt("price", current), parse_mode="HTML")
     
     elif data.startswith("plan_set_desc_"):
         plan_id = data.split("_")[-1]
-        current = admin_plan_state.get(user_id, {}).get("data", {}).get("description", "")
-        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "description"}
+        current_state = admin_plan_state.get(user_id, {})
+        current = current_state.get("data", {}).get("description", "")
+        admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "description", "data": current_state.get("data", {})}
         await callback.message.answer(get_plan_field_prompt("description", current), parse_mode="HTML")
     
     elif data == "plan_save_new":
