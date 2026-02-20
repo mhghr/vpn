@@ -19,6 +19,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     wallet_balance = Column(Integer, default=0)
     has_used_test_account = Column(Boolean, default=False)
+    representative_id = Column(Integer, nullable=True)
     joined_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -117,6 +118,7 @@ class PaymentReceipt(Base):
     approved_at = Column(DateTime, nullable=True)
     approved_by = Column(String, nullable=True)
     server_id = Column(Integer, nullable=True)  # No FK until servers table exists
+    representative_id = Column(Integer, nullable=True)
 
 
 class WireGuardConfig(Base):
@@ -127,6 +129,7 @@ class WireGuardConfig(Base):
     plan_name = Column(String, nullable=True)
     plan_id = Column(Integer, nullable=True)
     server_id = Column(Integer, nullable=True)  # No FK until servers table exists
+    representative_id = Column(Integer, nullable=True)
     private_key = Column(Text, nullable=False)
     public_key = Column(Text, nullable=False)
     client_ip = Column(String, nullable=False)
@@ -179,3 +182,19 @@ class ServiceTutorial(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     service_type = relationship("ServiceType")
+
+
+class Representative(Base):
+    __tablename__ = "representatives"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    bot_token = Column(String, nullable=False)
+    admin_telegram_id = Column(String, nullable=False)
+    channel_id = Column(String, nullable=False)
+    docker_container_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    total_configs = Column(Integer, default=0)
+    total_traffic_bytes = Column(BigInteger, default=0)
+    total_sales_amount = Column(BigInteger, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)

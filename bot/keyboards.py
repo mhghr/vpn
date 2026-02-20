@@ -20,7 +20,8 @@ def get_admin_keyboard(pending_panel=None):
         [InlineKeyboardButton(text="📦 پلن ها", callback_data="admin_plans"), InlineKeyboardButton(text="💳 فیش‌های پرداخت", callback_data="admin_receipts")],
         [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
         [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
-        [InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials"), InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🤝 نمایندگی‌ها", callback_data="admin_representatives"), InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
     ]
     if pending_panel:
         buttons.insert(0, [InlineKeyboardButton(text=f"🔔 درخواست پنل جدید ({pending_panel.get('name', 'Unknown')})", callback_data="admin_pending_panel")])
@@ -318,3 +319,22 @@ def get_plan_server_select_keyboard(servers: list, prefix: str):
     buttons = [[InlineKeyboardButton(text=f"🖧 {s.name}", callback_data=f"{prefix}{s.id}")] for s in servers]
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="buy")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_representatives_keyboard(representatives: list):
+    buttons = [
+        [InlineKeyboardButton(text="➕ افزودن نمایندگی", callback_data="rep_add")],
+    ]
+    for rep in representatives:
+        status = "🟢" if rep.is_active else "🔴"
+        buttons.append([InlineKeyboardButton(text=f"{status} {rep.name}", callback_data=f"rep_view_{rep.id}")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_representative_action_keyboard(rep_id: int, is_active: bool):
+    toggle_text = "⏸️ غیرفعال" if is_active else "▶️ فعال"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=toggle_text, callback_data=f"rep_toggle_{rep_id}"), InlineKeyboardButton(text="🗑️ حذف", callback_data=f"rep_delete_{rep_id}")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_representatives")],
+    ])
