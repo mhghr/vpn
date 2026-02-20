@@ -50,23 +50,19 @@ def get_plans_keyboard(plans: list = None):
         buttons.append([InlineKeyboardButton(text="📋 لیست پلن‌ها", callback_data="plan_list")])
     
     buttons.append([InlineKeyboardButton(text="➕ افزودن پلن جدید", callback_data="plan_create")])
+    buttons.append([InlineKeyboardButton(text="🧪 افزودن اکانت تست", callback_data="plan_create_test_account")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_plan_list_keyboard(plans: list):
     buttons = []
-    for i in range(0, len(plans), 2):
-        row = []
-        plan1 = plans[i]
-        status_emoji = "🟢" if plan1.is_active else "🔴"
-        row.append(InlineKeyboardButton(text=f"{status_emoji} {plan1.name}", callback_data=f"plan_view_{plan1.id}"))
-        if i + 1 < len(plans):
-            plan2 = plans[i + 1]
-            status_emoji2 = "🟢" if plan2.is_active else "🔴"
-            row.append(InlineKeyboardButton(text=f"{status_emoji2} {plan2.name}", callback_data=f"plan_view_{plan2.id}"))
-        buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="➕ پلن جدید", callback_data="plan_create"), InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")])
+    for plan in plans:
+        status_emoji = "🟢" if plan.is_active else "🔴"
+        buttons.append([InlineKeyboardButton(text=f"{status_emoji} {plan.name}", callback_data=f"plan_view_{plan.id}")])
+    buttons.append([InlineKeyboardButton(text="➕ پلن جدید", callback_data="plan_create")])
+    buttons.append([InlineKeyboardButton(text="🧪 افزودن اکانت تست", callback_data="plan_create_test_account")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -96,14 +92,13 @@ def get_plan_edit_keyboard(plan_id: int = None):
 
 def get_buy_keyboard(plans: list):
     buttons = []
-    for i in range(0, len(plans), 2):
-        row = []
-        plan1 = plans[i]
-        row.append(InlineKeyboardButton(text=f"{plan1.name} - {plan1.traffic_gb}گیگ - {plan1.duration_days}روز - {plan1.price:,}تومان", callback_data=f"buy_plan_{plan1.id}"))
-        if i + 1 < len(plans):
-            plan2 = plans[i + 1]
-            row.append(InlineKeyboardButton(text=f"{plan2.name} - {plan2.traffic_gb}گیگ - {plan2.duration_days}روز - {plan2.price:,}تومان", callback_data=f"buy_plan_{plan2.id}"))
-        buttons.append(row)
+    for plan in plans:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{plan.name} - {plan.traffic_gb}گیگ - {plan.duration_days}روز - {plan.price:,}تومان",
+                callback_data=f"buy_plan_{plan.id}"
+            )
+        ])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -169,8 +164,9 @@ def get_configs_keyboard(configs: list):
 
 def get_admin_config_detail_keyboard(config_id: int, can_renew: bool = False):
     buttons = []
-    if can_renew:
-        buttons.append([InlineKeyboardButton(text="♻️ تمدید سرویس", callback_data=f"cfg_renew_{config_id}")])
+    renew_callback = f"cfg_renew_{config_id}" if can_renew else f"cfg_renew_unavailable_{config_id}"
+    renew_label = "♻️ تمدید سرویس" if can_renew else "♻️ تمدید سرویس (پس از غیرفعال شدن)"
+    buttons.append([InlineKeyboardButton(text=renew_label, callback_data=renew_callback)])
     buttons.append([InlineKeyboardButton(text="⏸️ غیرفعال کردن", callback_data=f"admin_cfg_disable_{config_id}"), InlineKeyboardButton(text="🗑️ حذف کانفیگ", callback_data=f"admin_cfg_delete_{config_id}")])
     buttons.append([InlineKeyboardButton(text=" بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -185,8 +181,9 @@ def get_admin_config_confirm_delete_keyboard(config_id: int):
 def get_config_detail_keyboard(config_id: int, can_renew: bool = False):
     """User view config detail keyboard"""
     buttons = []
-    if can_renew:
-        buttons.append([InlineKeyboardButton(text="♻️ تمدید سرویس", callback_data=f"cfg_renew_{config_id}")])
+    renew_callback = f"cfg_renew_{config_id}" if can_renew else f"cfg_renew_unavailable_{config_id}"
+    renew_label = "♻️ تمدید سرویس" if can_renew else "♻️ تمدید سرویس (پس از غیرفعال شدن)"
+    buttons.append([InlineKeyboardButton(text=renew_label, callback_data=renew_callback)])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
