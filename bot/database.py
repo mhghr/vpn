@@ -8,6 +8,7 @@ load_dotenv()
 
 from sqlalchemy import create_engine
 from sqlalchemy import text
+from sqlalchemy import inspect
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:123@localhost:5432/myvpn")
@@ -15,6 +16,34 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:123@localhost:54
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+def _ensure_servers_columns_exist(conn):
+    """Defensively add WireGuard-related columns for legacy servers tables."""
+    required_columns = {
+        "service_type_id": "INTEGER",
+        "host": "VARCHAR",
+        "api_port": "INTEGER DEFAULT 8728",
+        "username": "VARCHAR",
+        "password": "VARCHAR",
+        "wg_interface": "VARCHAR",
+        "wg_server_public_key": "VARCHAR",
+        "wg_server_endpoint": "VARCHAR",
+        "wg_server_port": "INTEGER",
+        "wg_client_network_base": "VARCHAR",
+        "wg_client_dns": "VARCHAR",
+        "wg_ip_range_start": "INTEGER",
+        "wg_ip_range_end": "INTEGER",
+        "wg_is_ip_range": "BOOLEAN DEFAULT FALSE",
+        "capacity": "INTEGER DEFAULT 100",
+        "is_active": "BOOLEAN DEFAULT TRUE",
+    }
+
+    inspector = inspect(conn)
+    existing_columns = {c["name"] for c in inspector.get_columns("servers")}
+    for column_name, column_type in required_columns.items():
+        if column_name not in existing_columns:
+            conn.execute(text(f"ALTER TABLE servers ADD COLUMN {column_name} {column_type}"))
 
 
 def get_db():
@@ -102,6 +131,10 @@ def init_db():
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_is_ip_range BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS capacity INTEGER DEFAULT 100"))
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"))
+
+        # Some environments can still miss columns due partial/legacy migrations.
+        # Re-check the actual table shape and patch missing fields explicitly.
+        _ensure_servers_columns_exist(conn)
 
         conn.execute(text("""
             INSERT INTO service_types (code, name, is_active, created_at)
