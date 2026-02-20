@@ -25,7 +25,7 @@ print("Database initialized", file=sys.stderr)
 bot = Bot(token=TOKEN)
 print("Bot instance created", file=sys.stderr)
 
-TWO_GB_IN_BYTES = 2 * (1024 ** 3)
+ONE_GB_IN_BYTES = 1 * (1024 ** 3)
 TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
 
 
@@ -54,33 +54,37 @@ async def notify_plan_thresholds_worker():
                 remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0)
 
                 # Notify for low traffic once
-                if not config.low_traffic_alert_sent and remaining_bytes <= TWO_GB_IN_BYTES:
+                if not config.threshold_alert_sent and remaining_bytes <= ONE_GB_IN_BYTES:
                     try:
                         await bot.send_message(
                             chat_id=int(config.user_telegram_id),
                             text=(
                                 "⚠️ ترافیک سرویس شما رو به اتمام است.\n"
-                                "کمتر از ۲ گیگابایت از حجم پلن شما باقی مانده است.\n"
+                                "کمتر از ۱ گیگابایت از حجم پلن شما باقی مانده است.\n"
                                 "لطفاً برای تمدید یا خرید پلن جدید اقدام کنید."
                             )
                         )
                         config.low_traffic_alert_sent = True
+                        config.expiry_alert_sent = True
+                        config.threshold_alert_sent = True
                     except Exception as e:
                         print(f"Low traffic notify failed for {config.user_telegram_id}: {e}", file=sys.stderr)
 
                 # Notify for expiry once
                 days_left = (expires_at - now).total_seconds() / 86400
-                if not config.expiry_alert_sent and 0 <= days_left <= 2:
+                if not config.threshold_alert_sent and 0 <= days_left <= 1:
                     try:
                         await bot.send_message(
                             chat_id=int(config.user_telegram_id),
                             text=(
                                 "⏳ پلن شما رو به اتمام است.\n"
-                                "کمتر از ۲ روز تا پایان اعتبار سرویس شما باقی مانده است.\n"
+                                "کمتر از ۱ روز تا پایان اعتبار سرویس شما باقی مانده است.\n"
                                 "لطفاً برای تمدید سرویس اقدام کنید."
                             )
                         )
+                        config.low_traffic_alert_sent = True
                         config.expiry_alert_sent = True
+                        config.threshold_alert_sent = True
                     except Exception as e:
                         print(f"Expiry notify failed for {config.user_telegram_id}: {e}", file=sys.stderr)
 
