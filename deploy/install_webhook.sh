@@ -37,8 +37,6 @@ BOT_TOKEN="$(ask_required 'Bot token')"
 ADMIN_ID="$(ask_required 'Admin Telegram ID')"
 CHANNEL_ID="$(ask_required 'Channel ID or username (without @)')"
 CHANNEL_USERNAME="$(ask_default 'Channel username (without @)' "$CHANNEL_ID")"
-CARD_NUMBER="$(ask_default 'Card number for payment text' '1234-5678-9012-3456')"
-CARD_HOLDER="$(ask_default 'Card holder name' 'نام صاحب کارت')"
 
 echo "\n--- Domain / Webhook settings ---"
 DOMAIN="$(ask_required 'Domain for webhook (example: bot.example.com)')"
@@ -65,19 +63,19 @@ apt-get install -y \
   nginx certbot python3-certbot-nginx
 
 echo "[2/8] Configuring PostgreSQL..."
-sudo -u postgres psql <<SQL
+sudo -u postgres psql -v db_user="$DB_USER" -v db_pass="$DB_PASS" <<'SQL'
 DO
 \$\$
 BEGIN
-   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_USER}') THEN
-      CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASS}';
+   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = :'db_user') THEN
+      EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_pass');
    ELSE
-      ALTER ROLE ${DB_USER} WITH PASSWORD '${DB_PASS}';
+      EXECUTE format('ALTER ROLE %I WITH PASSWORD %L', :'db_user', :'db_pass');
    END IF;
 END
 \$\$;
 SQL
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" | grep -q 1 || \
+sudo -u postgres psql -v db_name="$DB_NAME" -tc "SELECT 1 FROM pg_database WHERE datname = :'db_name'" | grep -q 1 || \
   sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
 
 echo "[3/8] Switching project to webhook runtime..."
@@ -116,12 +114,11 @@ WEBHOOK_PATH=${WEBHOOK_PATH}
 WEBHOOK_BASE_URL=https://${DOMAIN}
 WEBHOOK_SECRET_TOKEN=${WEBHOOK_SECRET_TOKEN}
 WEBHOOK_DROP_PENDING_UPDATES=true
+RUN_MODE=webhook
 
 CHANNEL_ID=${CHANNEL_ID}
 CHANNEL_USERNAME=${CHANNEL_USERNAME}
 ADMIN_ID=${ADMIN_ID}
-CARD_NUMBER=${CARD_NUMBER}
-CARD_HOLDER=${CARD_HOLDER}
 DATABASE_URL=${DATABASE_URL}
 ENVVARS
 chmod 600 "$ENV_FILE"
