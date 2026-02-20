@@ -29,7 +29,10 @@ def init_db():
     from models import (
         User,
         Panel,
+        ServiceType,
+        Server,
         Plan,
+        PlanServerMap,
         PaymentReceipt,
         WireGuardConfig,
         GiftCode,
@@ -49,11 +52,7 @@ def init_db():
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS threshold_alert_sent BOOLEAN DEFAULT FALSE"))
         
         # Add server_id column if it doesn't exist (for FK to servers table)
-        try:
-            conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS server_id INTEGER REFERENCES servers(id)"))
-        except Exception:
-            # Table may not exist, skip
-            pass
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS server_id INTEGER"))
 
         # User columns
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS has_used_test_account BOOLEAN DEFAULT FALSE"))
@@ -64,16 +63,10 @@ def init_db():
         except Exception:
             pass
         
-        try:
-            conn.execute(text("ALTER TABLE plans ADD COLUMN IF NOT EXISTS service_type_id INTEGER REFERENCES service_types(id)"))
-        except Exception:
-            pass
+        conn.execute(text("ALTER TABLE plans ADD COLUMN IF NOT EXISTS service_type_id INTEGER"))
 
         # Payment receipt columns
-        try:
-            conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER REFERENCES servers(id)"))
-        except Exception:
-            pass
+        conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER"))
 
         # Try to create indexes for tables that may not exist yet
         try:
