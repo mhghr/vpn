@@ -602,27 +602,53 @@ async def handle_admin_input(message: Message):
                 )
                 return
 
+            host = state.get("host")
+            api_port = int(normalize_numbers(state.get("api_port", "8728")) or 8728)
+            username = state.get("username")
+            password = state.get("password")
+            wg_server_port = int(normalize_numbers(state.get("wg_server_port", "51820")) or 51820)
+            capacity = int(normalize_numbers(state.get("capacity", "100")) or 100)
+
+            try:
+                import wireguard
+                ok, err = wireguard.test_mikrotik_connection(
+                    mikrotik_host=host,
+                    mikrotik_user=username or "",
+                    mikrotik_pass=password or "",
+                    mikrotik_port=api_port,
+                )
+            except Exception as e:
+                ok, err = False, str(e)
+
+            if not ok:
+                await message.answer(
+                    f"❌ ارتباط با روتر برقرار نشد و سرور ذخیره نشد.\n\nجزئیات خطا: {err}",
+                    reply_markup=get_state_controls_keyboard(back_callback="server_input_back", cancel_callback="server_input_cancel"),
+                    parse_mode="HTML",
+                )
+                return
+
             db = SessionLocal()
             try:
                 srv = Server(
                     name=state.get("name"),
                     service_type_id=state.get("service_type_id"),
-                    host=state.get("host"),
-                    api_port=int(normalize_numbers(state.get("api_port", "8728")) or 8728),
-                    username=state.get("username"),
-                    password=state.get("password"),
+                    host=host,
+                    api_port=api_port,
+                    username=username,
+                    password=password,
                     wg_interface=state.get("wg_interface"),
                     wg_server_public_key=state.get("wg_server_public_key"),
                     wg_server_endpoint=state.get("wg_server_endpoint"),
-                    wg_server_port=int(normalize_numbers(state.get("wg_server_port", "51820")) or 51820),
+                    wg_server_port=wg_server_port,
                     wg_client_network_base=state.get("wg_client_network_base"),
                     wg_client_dns=state.get("wg_client_dns"),
-                    capacity=int(normalize_numbers(state.get("capacity", "100")) or 100),
+                    capacity=capacity,
                     is_active=True,
                 )
                 db.add(srv)
                 db.commit()
-                await message.answer(f"✅ سرور {srv.name} ثبت شد.", parse_mode="HTML")
+                await message.answer(f"✅ اتصال برقرار شد و سرور {srv.name} با موفقیت ذخیره شد.", parse_mode="HTML")
             except Exception as e:
                 await message.answer(f"❌ خطا در ثبت سرور: {e}", parse_mode="HTML")
             finally:

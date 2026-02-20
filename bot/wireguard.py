@@ -65,6 +65,40 @@ except ImportError as e:
     ROUTEROS_API_AVAILABLE = False
 
 
+
+
+def test_mikrotik_connection(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int,
+) -> tuple[bool, str]:
+    """Try a lightweight RouterOS API call and return connection status."""
+    if not ROUTEROS_API_AVAILABLE:
+        return False, "کتابخانه routeros_api نصب نیست."
+
+    pool = None
+    try:
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=int(mikrotik_port or 8728),
+            plaintext_login=True,
+        )
+        api = pool.get_api()
+        api.get_resource('/system/identity').get()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+
+
 def generate_wireguard_keypair():
     """
     Generate WireGuard private/public key pair using cryptography library
