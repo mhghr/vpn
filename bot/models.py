@@ -123,6 +123,7 @@ class WireGuardConfig(Base):
     counter_reset_flag = Column(Boolean, default=False)
     low_traffic_alert_sent = Column(Boolean, default=False)
     expiry_alert_sent = Column(Boolean, default=False)
+    threshold_alert_sent = Column(Boolean, default=False)
     
     def __repr__(self):
         return f"<WireGuardConfig(user={self.user_telegram_id}, ip={self.client_ip})>"

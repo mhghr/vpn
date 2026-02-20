@@ -27,7 +27,7 @@ from keyboards import (
     get_configs_keyboard, get_config_detail_keyboard, get_found_users_keyboard,
     get_admin_user_manage_keyboard, get_payment_method_keyboard_for_renew,
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
-    get_admin_user_configs_keyboard
+    get_admin_user_configs_keyboard, get_test_account_keyboard
 )
 
 from texts import (
@@ -849,12 +849,11 @@ async def callback_handler(callback: CallbackQuery, bot):
                 await send_qr_code(
                     callback.message,
                     wg_result.get("qr_code"),
-                    caption="📷 QR Code اکانت تست",
-                )
-                await callback.message.answer(
-                    f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
-                    f"📦 پلن انتخابی: {plan.name}",
-                    parse_mode="HTML"
+                    caption=(
+                        "📷 QR Code اکانت تست\n\n"
+                        f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                        f"📦 پلن انتخابی: {plan.name}"
+                    ),
                 )
         finally:
             db.close()
@@ -1476,11 +1475,33 @@ async def callback_handler(callback: CallbackQuery, bot):
         finally:
             db.close()
     
-    elif data == "plan_create_test_account":
+    elif data == "plan_test_account":
+        db = SessionLocal()
+        try:
+            test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+            if test_plan:
+                status = "✅ فعال" if test_plan.is_active else "❌ غیرفعال"
+                desc = test_plan.description if test_plan.description else "ندارد"
+                msg = (
+                    "🧪 اطلاعات اکانت تست\n\n"
+                    f"• نام: {test_plan.name}\n"
+                    f"• مدت: {test_plan.duration_days} روز\n"
+                    f"• ترافیک: {test_plan.traffic_gb} گیگابایت\n"
+                    f"• قیمت: {test_plan.price} تومان\n"
+                    f"• وضعیت: {status}\n"
+                    f"• توضیحات: {desc}"
+                )
+            else:
+                msg = "🧪 اکانت تست هنوز تعریف نشده است."
+            await callback.message.answer(msg, reply_markup=get_test_account_keyboard(bool(test_plan)), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data == "plan_test_account_edit":
         admin_plan_state[user_id] = {"action": "test_account_setup", "step": "days"}
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(
-            "🧪 افزودن اکانت تست\n\nلطفاً تعداد روز اکانت تست را وارد کنید:",
+            "🧪 ویرایش اکانت تست\n\nلطفاً تعداد روز اکانت تست را وارد کنید:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔙 انصراف", callback_data="admin_plans")]
             ]),
@@ -1810,16 +1831,13 @@ async def callback_handler(callback: CallbackQuery, bot):
                                     await send_qr_code(
                                         callback.message.bot,
                                         wg_result.get("qr_code"),
-                                        "📷 QR Code WireGuard\n\n➕ این تصویر را در نرم‌افزار WireGuard اضافه کنید",
-                                        chat_id=user_tg_id
-                                    )
-                                    await callback.message.bot.send_message(
-                                        chat_id=user_tg_id,
-                                        text=(
+                                        (
+                                            "📷 QR Code WireGuard\n\n"
+                                            "➕ این تصویر را در نرم‌افزار WireGuard اضافه کنید\n\n"
                                             f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
                                             f"📦 پلن انتخابی: {receipt.plan_name}"
                                         ),
-                                        parse_mode="HTML"
+                                        chat_id=user_tg_id
                                     )
                                 except Exception as e:
                                     print(f"Error sending QR code to user: {e}")

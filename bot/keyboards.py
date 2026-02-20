@@ -50,7 +50,7 @@ def get_plans_keyboard(plans: list = None):
         buttons.append([InlineKeyboardButton(text="📋 لیست پلن‌ها", callback_data="plan_list")])
     
     buttons.append([InlineKeyboardButton(text="➕ افزودن پلن جدید", callback_data="plan_create")])
-    buttons.append([InlineKeyboardButton(text="🧪 افزودن اکانت تست", callback_data="plan_create_test_account")])
+    buttons.append([InlineKeyboardButton(text="🧪 اکانت تست", callback_data="plan_test_account")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -61,10 +61,19 @@ def get_plan_list_keyboard(plans: list):
         status_emoji = "🟢" if plan.is_active else "🔴"
         buttons.append([InlineKeyboardButton(text=f"{status_emoji} {plan.name}", callback_data=f"plan_view_{plan.id}")])
     buttons.append([InlineKeyboardButton(text="➕ پلن جدید", callback_data="plan_create")])
-    buttons.append([InlineKeyboardButton(text="🧪 افزودن اکانت تست", callback_data="plan_create_test_account")])
+    buttons.append([InlineKeyboardButton(text="🧪 اکانت تست", callback_data="plan_test_account")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
+
+
+def get_test_account_keyboard(has_plan: bool):
+    edit_label = "✏️ ویرایش اکانت تست" if has_plan else "➕ ایجاد اکانت تست"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=edit_label, callback_data="plan_test_account_edit")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")]
+    ])
 
 def get_plan_action_keyboard(plan_id: int, is_active: bool = True):
     status_emoji = "🔴 غیرفعال" if is_active else "🟢 فعال"
