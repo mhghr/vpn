@@ -64,3 +64,4 @@ admin_discount_state = {}  # For admin discount code creation flow
 admin_receipt_reject_state = {}  # For admin reject-reason flow
 admin_service_type_state = {}  # For service type management flow
 admin_server_state = {}  # For server management flow
+admin_tutorial_state = {}  # For tutorial creation flow

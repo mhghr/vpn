@@ -8,12 +8,12 @@ from aiogram import Dispatcher
 from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile
 
 from database import SessionLocal, engine
-from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode, ServiceType, Server, PlanServerMap
+from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode, ServiceType, Server, PlanServerMap, ServiceTutorial
 from config import (
     CHANNEL_ID, CHANNEL_USERNAME, ADMIN_IDS,
     admin_plan_state, admin_create_account_state, user_payment_state,
     admin_user_search_state, admin_wallet_adjust_state, admin_discount_state, admin_receipt_reject_state,
-    admin_service_type_state, admin_server_state,
+    admin_service_type_state, admin_server_state, admin_tutorial_state,
     CARD_NUMBER, CARD_HOLDER,
     MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT,
     WG_INTERFACE, WG_SERVER_PUBLIC_KEY, WG_SERVER_ENDPOINT, WG_SERVER_PORT,
@@ -164,18 +164,113 @@ async def send_wireguard_config_file(sender, config_text: str, caption: str = No
             os.remove(tmp_path)
 
 
-def get_plan_field_prompt(field: str, current_value: str = None) -> str:
+def parse_ip_range(input_str: str) -> dict:
+    """
+    Parse IP range input in two formats:
+    1. CIDR: x.y.z.0/24
+    2. Range: x.y.z.10-x.y.z.220 or x.y.z.10-220
+    
+    Returns dict with keys: base_ip, start_ip, end_ip, cidr, is_range
+    """
+    input_str = input_str.strip()
+    
+    # Check if it's a range format (contains -)
+    if '-' in input_str and '/' not in input_str:
+        # Format: x.y.z.10-x.y.z.220 or x.y.z.10-220
+        parts = input_str.split('-')
+        if len(parts) == 2:
+            start_ip = parts[0].strip()
+            end_part = parts[1].strip()
+            
+            # Parse start IP
+            start_parts = start_ip.split('.')
+            if len(start_parts) == 4:
+                base = '.'.join(start_parts[:3])
+                start_last = int(start_parts[3])
+                
+                # Parse end IP - could be full IP or just last octet
+                if '.' in end_part:
+                    # Full IP like 192.168.30.220
+                    end_parts = end_part.split('.')
+                    end_last = int(end_parts[3])
+                else:
+                    # Just last octet like 220
+                    end_last = int(end_part)
+                
+                return {
+                    'base_ip': base,
+                    'start_ip': start_ip,
+                    'end_ip': f"{base}.{end_last}",
+                    'cidr': None,
+                    'is_range': True,
+                    'start_last': start_last,
+                    'end_last': end_last
+                }
+    
+    # Check if it's CIDR format
+    if '/' in input_str:
+        # Format: x.y.z.0/24
+        parts = input_str.split('/')
+        if len(parts) == 2:
+            ip = parts[0].strip()
+            mask = int(parts[1].strip())
+            
+            # Calculate start and end IPs based on CIDR
+            ip_parts = ip.split('.')
+            if len(ip_parts) == 4 and 0 <= mask <= 32:
+                ip_int = (int(ip_parts[0]) << 24) + (int(ip_parts[1]) << 16) + (int(ip_parts[2]) << 8) + int(ip_parts[3])
+                mask_int = (0xFFFFFFFF << (32 - mask)) & 0xFFFFFFFF
+                start_int = ip_int & mask_int
+                end_int = start_int | (0xFFFFFFFF - mask_int)
+                
+                return {
+                    'base_ip': ip,
+                    'start_ip': f"{(start_int >> 24) & 0xFF}.{(start_int >> 16) & 0xFF}.{(start_int >> 8) & 0xFF}.{start_int & 0xFF}",
+                    'end_ip': f"{(end_int >> 24) & 0xFF}.{(end_int >> 16) & 0xFF}.{(end_int >> 8) & 0xFF}.{end_int & 0xFF}",
+                    'cidr': mask,
+                    'is_range': False,
+                    'start_last': start_int & 0xFF,
+                    'end_last': end_int & 0xFF
+                }
+    
+    # Default: treat as simple base (backward compatibility)
+    parts = input_str.split('.')
+    if len(parts) == 4:
+        base = '.'.join(parts[:3])
+        return {
+            'base_ip': input_str,
+            'start_ip': f"{base}.1",
+            'end_ip': f"{base}.254",
+            'cidr': 24,
+            'is_range': False,
+            'start_last': 1,
+            'end_last': 254
+        }
+    
+    return None
+
+
+def get_server_field_prompt(field: str, step_num: int = None, total_steps: int = None) -> tuple:
     prompts = {
-        "name": "📝 لطفاً نام پلن را وارد کنید:",
-        "days": "⏰ لطفاً مدت زمان پلن را به روز وارد کنید (عدد):",
-        "traffic": "🌐 لطفاً میزان ترافیک را به گیگابایت وارد کنید (عدد):",
-        "price": "💰 لطفاً قیمت پلن را به تومان وارد کنید (عدد):",
-        "description": "📄 لطفاً توضیحات پلن را وارد کنید:"
+        "name": ("نام سرور را وارد کنید:", False),
+        "host": ("IP/Host سرور را وارد کنید:", False),
+        "api_port": ("پورت API (مثلاً 8728 یا 22):", False),
+        "username": ("یوزرنیم API:", False),
+        "password": ("پسورد API:", False),
+        "wg_interface": ("نام اینترفیس وایرگارد:", False),
+        "wg_server_public_key": ("Public Key سرور:", False),
+        "wg_server_endpoint": ("Endpoint سرور:", False),
+        "wg_server_port": ("پورت وایرگارد:", False),
+        "wg_client_network_base": ("رنج IP را وارد کنید:\n• فرمت CIDR: 192.168.30.0/24\n• فرمت رنج: 192.168.30.10-192.168.30.220", False),
+        "wg_client_dns": ("DNS (مثلاً 8.8.8.8,1.0.0.1):", False),
+        "capacity": ("ظرفیت سرور (تعداد اکانت):", True)
     }
-    msg = prompts.get(field, "لطفاً مقدار را وارد کنید:")
-    if current_value:
-        msg += f"\n\nمقدار فعلی: {current_value}"
-    return msg
+    msg, is_last = prompts.get(field, ("مقدار را وارد کنید:", False))
+    return msg, is_last
+
+
+def get_server_creation_steps():
+    return ["name", "host", "api_port", "username", "password", "wg_interface", "wg_server_public_key", "wg_server_endpoint", "wg_server_port", "wg_client_network_base", "wg_client_dns", "capacity"]
 
 
 def get_plan_creation_summary(data: dict) -> str:
@@ -304,6 +399,8 @@ def build_wg_kwargs(server: Server, user_id: str, plan, plan_name: str, duration
         wg_server_port=server.wg_server_port or WG_SERVER_PORT,
         wg_client_network_base=server.wg_client_network_base or WG_CLIENT_NETWORK_BASE,
         wg_client_dns=server.wg_client_dns or WG_CLIENT_DNS,
+        wg_ip_range_start=server.wg_ip_range_start if server.wg_is_ip_range else None,
+        wg_ip_range_end=server.wg_ip_range_end if server.wg_is_ip_range else None,
         user_telegram_id=str(user_id),
         plan_id=plan.id if plan else None,
         plan_name=plan_name,
@@ -526,9 +623,53 @@ async def handle_admin_input(message: Message):
                 admin_service_type_state.pop(user_id, None)
             return
 
+    # Handle tutorial create flow
+    if user_id in admin_tutorial_state:
+        state = admin_tutorial_state[user_id]
+        step = state.get("step")
+        
+        # Check for cancel
+        if text.strip() == "انصراف" or text.strip() == "cancel":
+            del admin_tutorial_state[user_id]
+            await message.answer("❌ عملیات لغو شد.", parse_mode="HTML")
+            return
+        
+        if step == "title":
+            state["title"] = text.strip()
+            state["step"] = "description"
+            await message.answer(
+                "✅ عنوان ثبت شد.\n\n"
+                "حالا لطفاً متن آموزش را وارد کنید:\n"
+                "(می‌تواند خالی باشد)",
+                parse_mode="HTML"
+            )
+            return
+        
+        if step == "description":
+            state["description"] = text.strip()
+            state["step"] = "media"
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            await message.answer(
+                "✅ متن ثبت شد.\n\n"
+                "حالا عکس یا ویدیوی آموزش را آپلود کنید:\n"
+                "(اگر نمی‌خواهید رسانه‌ای اضافه کنید، دکمه زیر را بزنید)",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⏭️ بدون رسانه", callback_data=f"admin_tutorial_skip_media_{state.get('service_type_id')}")]
+                ]),
+                parse_mode="HTML"
+            )
+            return
+
     # Handle server create/edit flow
     if user_id in admin_server_state:
         state = admin_server_state[user_id]
+        
+        # Check for cancel
+        if text.strip() == "انصراف" or text.strip() == "cancel":
+            del admin_server_state[user_id]
+            await message.answer("❌ عملیات لغو شد.", parse_mode="HTML")
+            return
+        
         if state.get("step") == "edit_capacity":
             db = SessionLocal()
             try:
@@ -544,27 +685,37 @@ async def handle_admin_input(message: Message):
                 admin_server_state.pop(user_id, None)
             return
 
-        steps = ["name", "host", "api_port", "username", "password", "wg_interface", "wg_server_public_key", "wg_server_endpoint", "wg_server_port", "wg_client_network_base", "wg_client_dns", "capacity"]
+        steps = get_server_creation_steps()
         current = state.get("step")
         if current in steps:
-            state[current] = text.strip()
+            # Validate IP range input
+            if current == "wg_client_network_base":
+                parsed = parse_ip_range(text.strip())
+                if not parsed:
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    await message.answer(
+                        "❌ فرمت رنج IP نامعتبر است.\n• CIDR: 192.168.30.0/24\n• رنج: 192.168.30.10-192.168.30.220",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="❌ انصراف", callback_data="server_add_cancel")]
+                        ]),
+                        parse_mode="HTML"
+                    )
+                    return
+                # Store the parsed info
+                state["wg_client_network_base"] = parsed["base_ip"]
+                state["wg_ip_range_start"] = parsed.get("start_last", 1)
+                state["wg_ip_range_end"] = parsed.get("end_last", 254)
+                state["wg_is_ip_range"] = parsed.get("is_range", False)
+            else:
+                state[current] = text.strip()
             idx = steps.index(current)
             if idx < len(steps) - 1:
                 state["step"] = steps[idx + 1]
-                prompts = {
-                    "host": "IP/Host سرور را وارد کنید:",
-                    "api_port": "پورت API (مثلاً 8728 یا 22):",
-                    "username": "یوزرنیم API:",
-                    "password": "پسورد API:",
-                    "wg_interface": "نام اینترفیس وایرگارد:",
-                    "wg_server_public_key": "Public Key سرور:",
-                    "wg_server_endpoint": "Endpoint سرور:",
-                    "wg_server_port": "پورت وایرگارد:",
-                    "wg_client_network_base": "رنج IP (مثلاً 192.168.30.0):",
-                    "wg_client_dns": "DNS (مثلاً 8.8.8.8,1.0.0.1):",
-                    "capacity": "ظرفیت سرور (تعداد اکانت):"
-                }
-                await message.answer(prompts[steps[idx + 1]], parse_mode="HTML")
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                msg, _ = get_server_field_prompt(steps[idx + 1])
+                await message.answer(msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="❌ انصراف", callback_data="server_add_cancel")]
+                ]), parse_mode="HTML")
                 return
 
             db = SessionLocal()
@@ -581,13 +732,24 @@ async def handle_admin_input(message: Message):
                     wg_server_endpoint=state.get("wg_server_endpoint"),
                     wg_server_port=int(normalize_numbers(state.get("wg_server_port", "51820")) or 51820),
                     wg_client_network_base=state.get("wg_client_network_base"),
+                    wg_ip_range_start=state.get("wg_ip_range_start"),
+                    wg_ip_range_end=state.get("wg_ip_range_end"),
+                    wg_is_ip_range=state.get("wg_is_ip_range", False),
                     wg_client_dns=state.get("wg_client_dns"),
                     capacity=int(normalize_numbers(state.get("capacity", "100")) or 100),
                     is_active=True,
                 )
                 db.add(srv)
                 db.commit()
-                await message.answer(f"✅ سرور {srv.name} ثبت شد.", parse_mode="HTML")
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                await message.answer(
+                    f"✅ سرور {srv.name} ثبت شد.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_servers")],
+                        [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")]
+                    ]),
+                    parse_mode="HTML"
+                )
             except Exception as e:
                 await message.answer(f"❌ خطا در ثبت سرور: {e}", parse_mode="HTML")
             finally:
@@ -1510,6 +1672,226 @@ async def callback_handler(callback: CallbackQuery, bot):
         finally:
             db.close()
 
+    # === TUTORIAL HANDLERS ===
+    elif data == "admin_tutorials":
+        db = SessionLocal()
+        try:
+            service_types = db.query(ServiceType).filter(ServiceType.is_active == True).order_by(ServiceType.id.asc()).all()
+            if service_types:
+                await callback.message.answer(
+                    "📚 مدیریت آموزش\n\nنوع سرویس را برای ویرایش آموزش انتخاب کنید:",
+                    reply_markup=get_service_type_picker_keyboard(service_types, "admin_tutorial_edit_"),
+                    parse_mode="HTML"
+                )
+            else:
+                await callback.message.answer("❌ هیچ نوع سرویسی یافت نشد.", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("admin_tutorial_edit_"):
+        service_type_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            service_type = db.query(ServiceType).filter(ServiceType.id == service_type_id).first()
+            if not service_type:
+                await callback.message.answer("❌ نوع سرویس یافت نشد.", parse_mode="HTML")
+                return
+            
+            tutorial = db.query(ServiceTutorial).filter(
+                ServiceTutorial.service_type_id == service_type_id,
+                ServiceTutorial.is_active == True
+            ).first()
+            
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            
+            if tutorial:
+                # Show existing tutorial with option to edit
+                msg = f"📚 آموزش {service_type.name}\n\n"
+                if tutorial.description:
+                    msg += f"متن: {tutorial.description[:200]}...\n"
+                if tutorial.media_type:
+                    msg += f"رسانه: {'عکس' if tutorial.media_type == 'photo' else 'ویدیو'} 📎"
+                
+                await callback.message.answer(
+                    msg,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="✏️ ویرایش آموزش", callback_data=f"admin_tutorial_create_{service_type_id}")],
+                        [InlineKeyboardButton(text="🗑️ حذف آموزش", callback_data=f"admin_tutorial_delete_{service_type_id}")],
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_tutorials")]
+                    ]),
+                    parse_mode="HTML"
+                )
+            else:
+                await callback.message.answer(
+                    f"📚 آموزش {service_type.name}\n\nآموزشی تعریف نشده است.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="➕ افزودن آموزش", callback_data=f"admin_tutorial_create_{service_type_id}")],
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_tutorials")]
+                    ]),
+                    parse_mode="HTML"
+                )
+        finally:
+            db.close()
+
+    elif data.startswith("admin_tutorial_create_"):
+        service_type_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            service_type = db.query(ServiceType).filter(ServiceType.id == service_type_id).first()
+            if not service_type:
+                await callback.message.answer("❌ نوع سرویس یافت نشد.", parse_mode="HTML")
+                return
+            
+            # Start tutorial creation flow
+            admin_tutorial_state[user_id] = {
+                "service_type_id": service_type_id,
+                "step": "title"
+            }
+            
+            await callback.message.answer(
+                f"📝 ایجاد آموزش برای {service_type.name}\n\n"
+                "لطفاً عنوان آموزش را وارد کنید:",
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("admin_tutorial_delete_"):
+        service_type_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            tutorial = db.query(ServiceTutorial).filter(
+                ServiceTutorial.service_type_id == service_type_id
+            ).first()
+            
+            if tutorial:
+                db.delete(tutorial)
+                db.commit()
+                await callback.message.answer("✅ آموزش حذف شد.", parse_mode="HTML")
+            else:
+                await callback.message.answer("❌ آموزش یافت نشد.", parse_mode="HTML")
+            
+            # Show service types again
+            service_types = db.query(ServiceType).filter(ServiceType.is_active == True).order_by(ServiceType.id.asc()).all()
+            await callback.message.answer(
+                "📚 مدیریت آموزش\n\nنوع سرویس را انتخاب کنید:",
+                reply_markup=get_service_type_picker_keyboard(service_types, "admin_tutorial_edit_"),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("admin_tutorial_skip_media_"):
+        service_type_id = int(data.split("_")[-1])
+        if user_id not in admin_tutorial_state:
+            await callback.message.answer("❌ عملیات منقضی شده است.", parse_mode="HTML")
+            return
+        
+        state = admin_tutorial_state[user_id]
+        if state.get("service_type_id") != service_type_id:
+            await callback.message.answer("❌ عملیات نامعتبر است.", parse_mode="HTML")
+            return
+        
+        db = SessionLocal()
+        try:
+            # Check if tutorial exists and update, or create new
+            existing = db.query(ServiceTutorial).filter(
+                ServiceTutorial.service_type_id == service_type_id
+            ).first()
+            
+            if existing:
+                existing.title = state.get("title", "")
+                existing.description = state.get("description", "")
+                existing.media_type = None
+                existing.media_file_id = None
+                existing.updated_at = datetime.utcnow()
+            else:
+                tutorial = ServiceTutorial(
+                    service_type_id=service_type_id,
+                    title=state.get("title", ""),
+                    description=state.get("description", ""),
+                    media_type=None,
+                    media_file_id=None,
+                    is_active=True
+                )
+                db.add(tutorial)
+            
+            db.commit()
+            await callback.message.answer("✅ آموزش ذخیره شد!\n(بدون رسانه)", parse_mode="HTML")
+        except Exception as e:
+            await callback.message.answer(f"❌ خطا: {e}", parse_mode="HTML")
+        finally:
+            db.close()
+            del admin_tutorial_state[user_id]
+
+    # === USER TUTORIAL VIEW ===
+    elif data == "user_tutorials":
+        db = SessionLocal()
+        try:
+            service_types = db.query(ServiceType).filter(ServiceType.is_active == True).order_by(ServiceType.id.asc()).all()
+            if service_types:
+                await callback.message.answer(
+                    "📚 آموزش\n\nنوع سرویس را انتخاب کنید:",
+                    reply_markup=get_service_type_picker_keyboard(service_types, "user_tutorial_view_"),
+                    parse_mode="HTML"
+                )
+            else:
+                await callback.message.answer("❌ هیچ نوع سرویسی یافت نشد.", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("user_tutorial_view_"):
+        service_type_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            service_type = db.query(ServiceType).filter(ServiceType.id == service_type_id).first()
+            if not service_type:
+                await callback.message.answer("❌ نوع سرویس یافت نشد.", parse_mode="HTML")
+                return
+            
+            tutorial = db.query(ServiceTutorial).filter(
+                ServiceTutorial.service_type_id == service_type_id,
+                ServiceTutorial.is_active == True
+            ).first()
+            
+            if not tutorial:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                await callback.message.answer(
+                    f"📚 آموزش {service_type.name}\n\nآموزشی یافت نشد.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="user_tutorials")]
+                    ]),
+                    parse_mode="HTML"
+                )
+                return
+            
+            # Send tutorial with media if available
+            if tutorial.media_file_id:
+                if tutorial.media_type == "photo":
+                    await callback.message.answer_photo(
+                        photo=tutorial.media_file_id,
+                        caption=f"📚 {tutorial.title}\n\n{tutorial.description or ''}",
+                        parse_mode="HTML"
+                    )
+                elif tutorial.media_type == "video":
+                    await callback.message.answer_video(
+                        video=tutorial.media_file_id,
+                        caption=f"📚 {tutorial.title}\n\n{tutorial.description or ''}",
+                        parse_mode="HTML"
+                    )
+            else:
+                # No media, just send text
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                await callback.message.answer(
+                    f"📚 {tutorial.title}\n\n{tutorial.description or 'بدون توضیحات'}",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="user_tutorials")]
+                    ]),
+                    parse_mode="HTML"
+                )
+        finally:
+            db.close()
+
     elif data == "service_type_add":
         admin_service_type_state[user_id] = {"step": "name"}
         await callback.message.answer("نام نوع سرویس جدید را وارد کنید:", parse_mode="HTML")
@@ -1569,8 +1951,20 @@ async def callback_handler(callback: CallbackQuery, bot):
 
     elif data.startswith("server_add_"):
         service_type_id = int(data.split("_")[-1])
+        if data == "server_add_cancel":
+            if user_id in admin_server_state:
+                del admin_server_state[user_id]
+            await callback.message.answer("❌ عملیات لغو شد.", parse_mode="HTML")
+            return
         admin_server_state[user_id] = {"step": "name", "service_type_id": service_type_id}
-        await callback.message.answer("نام سرور را وارد کنید:", parse_mode="HTML")
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        await callback.message.answer(
+            "نام سرور را وارد کنید:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ انصراف", callback_data="server_add_cancel")]
+            ]),
+            parse_mode="HTML"
+        )
 
     elif data.startswith("server_view_"):
         server_id = int(data.split("_")[-1])
@@ -2206,6 +2600,11 @@ async def callback_handler(callback: CallbackQuery, bot):
     elif data == "receipt_done":
         await callback.answer("این فیش قبلاً تایید شده است.", show_alert=True)
     
+    elif data == "server_add_cancel":
+        if user_id in admin_server_state:
+            del admin_server_state[user_id]
+        await callback.message.answer("❌ عملیات لغو شد.", parse_mode="HTML")
+    
     await callback.answer()
 
 
@@ -2255,6 +2654,68 @@ async def handle_discount_code_input(message: Message):
         )
     finally:
         db.close()
+
+
+# Admin tutorial media handler (photo/video)
+@dp.message(lambda message: message.from_user.id in admin_tutorial_state and admin_tutorial_state.get(message.from_user.id, {}).get("step") == "media")
+async def handle_tutorial_media(message: Message):
+    user_id = message.from_user.id
+    
+    if user_id not in admin_tutorial_state:
+        return
+    
+    state = admin_tutorial_state[user_id]
+    if state.get("step") != "media":
+        return
+    
+    service_type_id = state.get("service_type_id")
+    
+    # Check for photo
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        media_type = "photo"
+    # Check for video
+    elif message.video:
+        file_id = message.video.file_id
+        media_type = "video"
+    else:
+        await message.answer("❌ لطفاً عکس یا ویدیو ارسال کنید.", parse_mode="HTML")
+        return
+    
+    db = SessionLocal()
+    try:
+        # Check if tutorial exists and update, or create new
+        existing = db.query(ServiceTutorial).filter(
+            ServiceTutorial.service_type_id == service_type_id
+        ).first()
+        
+        if existing:
+            existing.title = state.get("title", "")
+            existing.description = state.get("description", "")
+            existing.media_type = media_type
+            existing.media_file_id = file_id
+            existing.updated_at = datetime.utcnow()
+        else:
+            tutorial = ServiceTutorial(
+                service_type_id=service_type_id,
+                title=state.get("title", ""),
+                description=state.get("description", ""),
+                media_type=media_type,
+                media_file_id=file_id,
+                is_active=True
+            )
+            db.add(tutorial)
+        
+        db.commit()
+        await message.answer(
+            f"✅ آموزش ذخیره شد!\nرسانه: {'عکس' if media_type == 'photo' else 'ویدیو'}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ خطا: {e}", parse_mode="HTML")
+    finally:
+        db.close()
+        del admin_tutorial_state[user_id]
 
 
 # Receipt photo handler

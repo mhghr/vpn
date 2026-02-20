@@ -67,6 +67,9 @@ class Server(Base):
     wg_server_port = Column(Integer, nullable=True)
     wg_client_network_base = Column(String, nullable=True)
     wg_client_dns = Column(String, nullable=True)
+    wg_ip_range_start = Column(Integer, nullable=True)
+    wg_ip_range_end = Column(Integer, nullable=True)
+    wg_is_ip_range = Column(Boolean, default=False)
     capacity = Column(Integer, default=100)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -158,3 +161,21 @@ class GiftCode(Base):
     expires_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ServiceTutorial(Base):
+    """Tutorial for each service type"""
+    __tablename__ = "service_tutorials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_type_id = Column(Integer, ForeignKey("service_types.id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    media_type = Column(String, nullable=True)  # photo, video
+    media_file_id = Column(String, nullable=True)  # Telegram file_id
+    media_url = Column(String, nullable=True)  # Alternative URL
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    service_type = relationship("ServiceType")

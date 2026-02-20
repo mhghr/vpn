@@ -415,16 +415,23 @@ def delete_wireguard_peer(
                 pass
 
 
-def get_next_available_ip_from_db(network_base: str) -> str:
+def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None, ip_range_end: int = None) -> str:
     """
     Get next available IP from the database
-    Range: 10-250 (skipping 1-9 and 251+)
+    Range: by default 10-250 (skipping 1-9 and 251+)
+    Can be customized with ip_range_start and ip_range_end
     """
     logger.info(f"[Step 2] Getting next available IP from database, network: {network_base}...")
     
     # Parse network base (e.g., "192.168.30.0" -> "192.168.30.")
     base_parts = network_base.rsplit('.', 1)
     prefix = base_parts[0] + "."
+    
+    # Default range if not specified
+    start = ip_range_start if ip_range_start else 10
+    end = ip_range_end if ip_range_end else 250
+    
+    logger.info(f"[Step 2] IP range: {start}-{end}")
     
     db = SessionLocal()
     try:
@@ -445,14 +452,14 @@ def get_next_available_ip_from_db(network_base: str) -> str:
         
         logger.info(f"[Step 2] Used IPs in database: {sorted(used_ips)}")
         
-        # Find next available IP in range 10-250
-        for i in range(10, 251):
+        # Find next available IP in the specified range
+        for i in range(start, end + 1):
             if i not in used_ips:
                 ip = f"{prefix}{i}"
                 logger.info(f"[Step 2] ✓ Selected available IP: {ip}")
                 return ip
         
-        logger.warning("[Step 2] ✗ No available IP found in range 10-250")
+        logger.warning(f"[Step 2] ✗ No available IP found in range {start}-{end}")
         return None
         
     except Exception as e:
@@ -652,6 +659,8 @@ def create_wireguard_account(
     wg_server_port: int,
     wg_client_network_base: str = "192.168.30.0",
     wg_client_dns: str = "8.8.8.8,1.0.0.1",
+    wg_ip_range_start: int = None,
+    wg_ip_range_end: int = None,
     user_telegram_id: str = None,
     plan_id: int = None,
     plan_name: str = None,
@@ -704,7 +713,7 @@ def create_wireguard_account(
         public_key, private_key = generate_wireguard_keypair()
         
         # Step 2: Get next available IP
-        client_ip = get_next_available_ip_from_db(wg_client_network_base)
+        client_ip = get_next_available_ip_from_db(wg_client_network_base, wg_ip_range_start, wg_ip_range_end)
         
         if client_ip is None:
             error_msg = "No available IP in range 10-250"

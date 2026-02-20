@@ -5,7 +5,8 @@ def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
         [InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
         [InlineKeyboardButton(text="🔗 کانفیگ‌های من", callback_data="configs"), InlineKeyboardButton(text="📖 آموزش اتصال", callback_data="howto")],
-        [InlineKeyboardButton(text="💰 شارژ کیف پول", callback_data="wallet"), InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
+        [InlineKeyboardButton(text="📚 آموزش", callback_data="user_tutorials"), InlineKeyboardButton(text="💰 کیف پول", callback_data="wallet")],
+        [InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
         [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile")]
     ]
     if is_admin_user:
@@ -19,7 +20,7 @@ def get_admin_keyboard(pending_panel=None):
         [InlineKeyboardButton(text="📦 پلن ها", callback_data="admin_plans"), InlineKeyboardButton(text="💳 فیش‌های پرداخت", callback_data="admin_receipts")],
         [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
         [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials"), InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
     ]
     if pending_panel:
         buttons.insert(0, [InlineKeyboardButton(text=f"🔔 درخواست پنل جدید ({pending_panel.get('name', 'Unknown')})", callback_data="admin_pending_panel")])
