@@ -104,12 +104,17 @@ def get_plan_edit_keyboard(plan_id: int = None):
 def get_buy_keyboard(plans: list):
     buttons = []
     for plan in plans:
+        # Skip test account
+        if plan.name == "اکانت تست":
+            continue
         buttons.append([
             InlineKeyboardButton(
-                text=f"{plan.name} - {plan.traffic_gb}گیگ - {plan.duration_days}روز - {plan.price:,}تومان",
+                text=f"🛒 {plan.name}",
                 callback_data=f"buy_plan_{plan.id}"
             )
         ])
+    if not buttons:
+        buttons.append([InlineKeyboardButton(text="❌ پلنی یافت نشد", callback_data="back_to_main")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
