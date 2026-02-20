@@ -28,7 +28,7 @@ async def notify_plan_thresholds_worker():
     while True:
         db = SessionLocal()
         try:
-            now = datetime.utcnow()
+            now = datetime.now()
             configs = db.query(WireGuardConfig).filter(WireGuardConfig.status == "active").all()
             for config in configs:
                 if not config.plan_id:
@@ -89,7 +89,7 @@ async def cleanup_expired_test_accounts_worker():
     while True:
         db = SessionLocal()
         try:
-            now = datetime.utcnow()
+            now = datetime.now()
             test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
             if not test_plan:
                 await asyncio.sleep(180)

@@ -64,6 +64,23 @@ def init_db():
             pass
         
         conn.execute(text("ALTER TABLE plans ADD COLUMN IF NOT EXISTS service_type_id INTEGER"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_plans_service_type_id ON plans(service_type_id)"))
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = 'fk_plans_service_type_id'
+                ) THEN
+                    ALTER TABLE plans
+                    ADD CONSTRAINT fk_plans_service_type_id
+                    FOREIGN KEY (service_type_id) REFERENCES service_types(id)
+                    ON DELETE SET NULL;
+                END IF;
+            END;
+            $$;
+        """))
 
         # Payment receipt columns
         conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER"))

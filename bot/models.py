@@ -79,7 +79,7 @@ class Plan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    service_type_id = Column(Integer, nullable=True)  # No FK until service_types table exists
+    service_type_id = Column(Integer, ForeignKey("service_types.id"), nullable=True, index=True)
     duration_days = Column(Integer, nullable=False)
     traffic_gb = Column(Float, nullable=False)
     price = Column(Integer, nullable=False)
