@@ -8,11 +8,12 @@ from aiogram import Dispatcher
 from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile
 
 from database import SessionLocal, engine
-from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode
+from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode, ServiceType, Server, PlanServerMap
 from config import (
     CHANNEL_ID, CHANNEL_USERNAME, ADMIN_IDS,
     admin_plan_state, admin_create_account_state, user_payment_state,
     admin_user_search_state, admin_wallet_adjust_state, admin_discount_state, admin_receipt_reject_state,
+    admin_service_type_state, admin_server_state,
     CARD_NUMBER, CARD_HOLDER,
     MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT,
     WG_INTERFACE, WG_SERVER_PUBLIC_KEY, WG_SERVER_ENDPOINT, WG_SERVER_PORT,
@@ -27,7 +28,9 @@ from keyboards import (
     get_configs_keyboard, get_config_detail_keyboard, get_found_users_keyboard,
     get_admin_user_manage_keyboard, get_payment_method_keyboard_for_renew,
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
-    get_admin_user_configs_keyboard, get_test_account_keyboard
+    get_admin_user_configs_keyboard, get_test_account_keyboard, get_service_types_keyboard,
+    get_servers_service_type_keyboard, get_servers_keyboard, get_server_action_keyboard,
+    get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard
 )
 
 from texts import (
@@ -263,6 +266,53 @@ def format_traffic_size(size_bytes: int) -> str:
     return f"{size_bytes / mib:.2f} مگابایت"
 
 
+def slugify_service_code(name: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else "_" for ch in name).strip("_") or "service"
+
+
+def get_plan_servers(db, plan_id: int):
+    return db.query(Server).join(PlanServerMap, PlanServerMap.server_id == Server.id).filter(
+        PlanServerMap.plan_id == plan_id,
+        Server.is_active == True
+    ).all()
+
+
+def get_server_active_config_count(db, server_id: int) -> int:
+    return db.query(WireGuardConfig).filter(WireGuardConfig.server_id == server_id, WireGuardConfig.status == "active").count()
+
+
+def get_available_servers_for_plan(db, plan_id: int):
+    servers = get_plan_servers(db, plan_id)
+    available = []
+    for srv in servers:
+        used = get_server_active_config_count(db, srv.id)
+        capacity = srv.capacity or 0
+        if capacity <= 0 or used < capacity:
+            available.append(srv)
+    return available
+
+
+def build_wg_kwargs(server: Server, user_id: str, plan, plan_name: str, duration_days: int):
+    return dict(
+        mikrotik_host=server.host,
+        mikrotik_user=server.username or "",
+        mikrotik_pass=server.password or "",
+        mikrotik_port=server.api_port or 8728,
+        wg_interface=server.wg_interface or WG_INTERFACE,
+        wg_server_public_key=server.wg_server_public_key or WG_SERVER_PUBLIC_KEY,
+        wg_server_endpoint=server.wg_server_endpoint or WG_SERVER_ENDPOINT,
+        wg_server_port=server.wg_server_port or WG_SERVER_PORT,
+        wg_client_network_base=server.wg_client_network_base or WG_CLIENT_NETWORK_BASE,
+        wg_client_dns=server.wg_client_dns or WG_CLIENT_DNS,
+        user_telegram_id=str(user_id),
+        plan_id=plan.id if plan else None,
+        plan_name=plan_name,
+        duration_days=duration_days,
+        server_id=server.id,
+    )
+
+
+
 # Messages
 TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
 
@@ -452,6 +502,99 @@ async def handle_admin_input(message: Message):
             del admin_receipt_reject_state[user_id]
         return
     
+    # Handle service type create flow
+    if user_id in admin_service_type_state:
+        state = admin_service_type_state[user_id]
+        if state.get("step") == "name":
+            name = text.strip()
+            if not name:
+                await message.answer("❌ نام نوع سرویس نامعتبر است.", parse_mode="HTML")
+                return
+            code = slugify_service_code(name)
+            db = SessionLocal()
+            try:
+                exists = db.query(ServiceType).filter(ServiceType.code == code).first()
+                if exists:
+                    await message.answer("❌ این نوع سرویس قبلاً ثبت شده است.", parse_mode="HTML")
+                    return
+                row = ServiceType(name=name, code=code, is_active=True)
+                db.add(row)
+                db.commit()
+                await message.answer(f"✅ نوع سرویس {name} اضافه شد.", parse_mode="HTML")
+            finally:
+                db.close()
+                admin_service_type_state.pop(user_id, None)
+            return
+
+    # Handle server create/edit flow
+    if user_id in admin_server_state:
+        state = admin_server_state[user_id]
+        if state.get("step") == "edit_capacity":
+            db = SessionLocal()
+            try:
+                srv = db.query(Server).filter(Server.id == state.get("server_id")).first()
+                if not srv:
+                    await message.answer("❌ سرور یافت نشد.", parse_mode="HTML")
+                    return
+                srv.capacity = int(normalize_numbers(text) or 0)
+                db.commit()
+                await message.answer("✅ ظرفیت سرور ویرایش شد.", parse_mode="HTML")
+            finally:
+                db.close()
+                admin_server_state.pop(user_id, None)
+            return
+
+        steps = ["name", "host", "api_port", "username", "password", "wg_interface", "wg_server_public_key", "wg_server_endpoint", "wg_server_port", "wg_client_network_base", "wg_client_dns", "capacity"]
+        current = state.get("step")
+        if current in steps:
+            state[current] = text.strip()
+            idx = steps.index(current)
+            if idx < len(steps) - 1:
+                state["step"] = steps[idx + 1]
+                prompts = {
+                    "host": "IP/Host سرور را وارد کنید:",
+                    "api_port": "پورت API (مثلاً 8728 یا 22):",
+                    "username": "یوزرنیم API:",
+                    "password": "پسورد API:",
+                    "wg_interface": "نام اینترفیس وایرگارد:",
+                    "wg_server_public_key": "Public Key سرور:",
+                    "wg_server_endpoint": "Endpoint سرور:",
+                    "wg_server_port": "پورت وایرگارد:",
+                    "wg_client_network_base": "رنج IP (مثلاً 192.168.30.0):",
+                    "wg_client_dns": "DNS (مثلاً 8.8.8.8,1.0.0.1):",
+                    "capacity": "ظرفیت سرور (تعداد اکانت):"
+                }
+                await message.answer(prompts[steps[idx + 1]], parse_mode="HTML")
+                return
+
+            db = SessionLocal()
+            try:
+                srv = Server(
+                    name=state.get("name"),
+                    service_type_id=state.get("service_type_id"),
+                    host=state.get("host"),
+                    api_port=int(normalize_numbers(state.get("api_port", "8728")) or 8728),
+                    username=state.get("username"),
+                    password=state.get("password"),
+                    wg_interface=state.get("wg_interface"),
+                    wg_server_public_key=state.get("wg_server_public_key"),
+                    wg_server_endpoint=state.get("wg_server_endpoint"),
+                    wg_server_port=int(normalize_numbers(state.get("wg_server_port", "51820")) or 51820),
+                    wg_client_network_base=state.get("wg_client_network_base"),
+                    wg_client_dns=state.get("wg_client_dns"),
+                    capacity=int(normalize_numbers(state.get("capacity", "100")) or 100),
+                    is_active=True,
+                )
+                db.add(srv)
+                db.commit()
+                await message.answer(f"✅ سرور {srv.name} ثبت شد.", parse_mode="HTML")
+            except Exception as e:
+                await message.answer(f"❌ خطا در ثبت سرور: {e}", parse_mode="HTML")
+            finally:
+                db.close()
+                admin_server_state.pop(user_id, None)
+            return
+
     # Handle custom account creation flow
     if user_id in admin_create_account_state:
         state = admin_create_account_state[user_id]
@@ -793,22 +936,27 @@ async def callback_handler(callback: CallbackQuery, bot):
 
             try:
                 import wireguard
-                wg_result = wireguard.create_wireguard_account(
-                    mikrotik_host=MIKROTIK_HOST,
-                    mikrotik_user=MIKROTIK_USER,
-                    mikrotik_pass=MIKROTIK_PASS,
-                    mikrotik_port=MIKROTIK_PORT,
-                    wg_interface=WG_INTERFACE,
-                    wg_server_public_key=WG_SERVER_PUBLIC_KEY,
-                    wg_server_endpoint=WG_SERVER_ENDPOINT,
-                    wg_server_port=WG_SERVER_PORT,
-                    wg_client_network_base=WG_CLIENT_NETWORK_BASE,
-                    wg_client_dns=WG_CLIENT_DNS,
-                    user_telegram_id=str(user_id),
-                    plan_id=plan.id,
-                    plan_name=plan.name,
-                    duration_days=plan.duration_days,
-                )
+                available_servers = get_available_servers_for_plan(db, plan.id)
+                server = available_servers[0] if available_servers else None
+                if server:
+                    wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), plan, plan.name, plan.duration_days))
+                else:
+                    wg_result = wireguard.create_wireguard_account(
+                        mikrotik_host=MIKROTIK_HOST,
+                        mikrotik_user=MIKROTIK_USER,
+                        mikrotik_pass=MIKROTIK_PASS,
+                        mikrotik_port=MIKROTIK_PORT,
+                        wg_interface=WG_INTERFACE,
+                        wg_server_public_key=WG_SERVER_PUBLIC_KEY,
+                        wg_server_endpoint=WG_SERVER_ENDPOINT,
+                        wg_server_port=WG_SERVER_PORT,
+                        wg_client_network_base=WG_CLIENT_NETWORK_BASE,
+                        wg_client_dns=WG_CLIENT_DNS,
+                        user_telegram_id=str(user_id),
+                        plan_id=plan.id,
+                        plan_name=plan.name,
+                        duration_days=plan.duration_days,
+                    )
             except Exception as e:
                 await callback.message.answer(f"❌ خطا در ایجاد اکانت تست: {str(e)}", parse_mode="HTML")
                 return
@@ -1354,6 +1502,117 @@ async def callback_handler(callback: CallbackQuery, bot):
         admin_discount_state[user_id] = {"step": "code"}
         await callback.message.answer("کد تخفیف را وارد کنید (مثال: NEWYEAR):", parse_mode="HTML")
     
+    elif data == "admin_service_types":
+        db = SessionLocal()
+        try:
+            rows = db.query(ServiceType).order_by(ServiceType.id.asc()).all()
+            await callback.message.answer("🧩 مدیریت انواع سرویس", reply_markup=get_service_types_keyboard(rows), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data == "service_type_add":
+        admin_service_type_state[user_id] = {"step": "name"}
+        await callback.message.answer("نام نوع سرویس جدید را وارد کنید:", parse_mode="HTML")
+
+    elif data.startswith("service_type_view_"):
+        st_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            st = db.query(ServiceType).filter(ServiceType.id == st_id).first()
+            if not st:
+                await callback.message.answer("❌ نوع سرویس یافت نشد.", parse_mode="HTML")
+                return
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            await callback.message.answer(
+                f"🧩 {st.name} ({st.code})",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗑️ حذف", callback_data=f"service_type_delete_{st.id}")]]),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("service_type_delete_"):
+        st_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            st = db.query(ServiceType).filter(ServiceType.id == st_id).first()
+            if not st:
+                await callback.message.answer("❌ نوع سرویس یافت نشد.", parse_mode="HTML")
+                return
+            has_plan = db.query(Plan).filter(Plan.service_type_id == st.id).first()
+            has_server = db.query(Server).filter(Server.service_type_id == st.id).first()
+            if has_plan or has_server:
+                await callback.message.answer("❌ ابتدا پلن‌ها و سرورهای این نوع سرویس را حذف کنید.", parse_mode="HTML")
+                return
+            db.delete(st)
+            db.commit()
+            await callback.message.answer("✅ نوع سرویس حذف شد.", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data == "admin_servers":
+        db = SessionLocal()
+        try:
+            rows = db.query(ServiceType).filter(ServiceType.is_active == True).all()
+            await callback.message.answer("🖧 مدیریت سرورها\n\nابتدا نوع سرویس را انتخاب کنید:", reply_markup=get_servers_service_type_keyboard(rows), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("admin_servers_type_"):
+        service_type_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            servers = db.query(Server).filter(Server.service_type_id == service_type_id).all()
+            await callback.message.answer("📋 لیست سرورها:", reply_markup=get_servers_keyboard(servers, service_type_id), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("server_add_"):
+        service_type_id = int(data.split("_")[-1])
+        admin_server_state[user_id] = {"step": "name", "service_type_id": service_type_id}
+        await callback.message.answer("نام سرور را وارد کنید:", parse_mode="HTML")
+
+    elif data.startswith("server_view_"):
+        server_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            srv = db.query(Server).filter(Server.id == server_id).first()
+            if not srv:
+                await callback.message.answer("❌ سرور یافت نشد.", parse_mode="HTML")
+                return
+            used = get_server_active_config_count(db, srv.id)
+            msg = (
+                f"🖧 {srv.name}\n"
+                f"• Host: {srv.host}\n"
+                f"• API Port: {srv.api_port}\n"
+                f"• ظرفیت: {used}/{srv.capacity}\n"
+                f"• Interface: {srv.wg_interface or '-'}\n"
+                f"• Endpoint: {srv.wg_server_endpoint or '-'}:{srv.wg_server_port or '-'}"
+            )
+            await callback.message.answer(msg, reply_markup=get_server_action_keyboard(srv.id, srv.service_type_id), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("server_edit_"):
+        server_id = int(data.split("_")[-1])
+        admin_server_state[user_id] = {"step": "edit_capacity", "server_id": server_id}
+        await callback.message.answer("ظرفیت جدید سرور را وارد کنید:", parse_mode="HTML")
+
+    elif data.startswith("server_delete_"):
+        server_id = int(data.split("_")[-1])
+        db = SessionLocal()
+        try:
+            srv = db.query(Server).filter(Server.id == server_id).first()
+            if not srv:
+                await callback.message.answer("❌ سرور یافت نشد.", parse_mode="HTML")
+                return
+            db.query(PlanServerMap).filter(PlanServerMap.server_id == srv.id).delete()
+            db.delete(srv)
+            db.commit()
+            await callback.message.answer("✅ سرور حذف شد.", parse_mode="HTML")
+        finally:
+            db.close()
+
     elif data == "admin_plans":
         db = SessionLocal()
         try:
@@ -1392,69 +1651,41 @@ async def callback_handler(callback: CallbackQuery, bot):
         db = SessionLocal()
         try:
             plan = db.query(Plan).filter(Plan.id == plan_id, Plan.is_active == True).first()
-            if plan:
-                # Create WireGuard account
-                try:
-                    import wireguard
-                    wg_result = wireguard.create_wireguard_account(
-                        mikrotik_host=MIKROTIK_HOST,
-                        mikrotik_user=MIKROTIK_USER,
-                        mikrotik_pass=MIKROTIK_PASS,
-                        mikrotik_port=MIKROTIK_PORT,
-                        wg_interface=WG_INTERFACE,
-                        wg_server_public_key=WG_SERVER_PUBLIC_KEY,
-                        wg_server_endpoint=WG_SERVER_ENDPOINT,
-                        wg_server_port=WG_SERVER_PORT,
-                        wg_client_network_base=WG_CLIENT_NETWORK_BASE,
-                        wg_client_dns=WG_CLIENT_DNS,
-                        user_telegram_id=str(user_id),
-                        plan_id=plan.id,
-                        plan_name=plan.name,
-                        duration_days=plan.duration_days
-                    )
-                    
-                    if wg_result.get("success"):
-                        client_ip = wg_result.get("client_ip", "N/A")
-                        config = wg_result.get("config", "")
-                        
-                        # Send summary + config file + QR to admin
-                        await callback.message.answer(
-                            f"✅ اکانت وایرگارد ایجاد شد!\n\n📋 اطلاعات اکانت:\n• پلن: {plan.name}\n• مدت: {plan.duration_days} روز\n• حجم: {plan.traffic_gb} گیگ\n• قیمت: {plan.price:,} تومان\n• آی پی: {client_ip}",
-                            parse_mode="HTML"
-                        )
-                        
-                        # Send config file
-                        if config:
-                            await send_wireguard_config_file(
-                                callback.message,
-                                config,
-                                caption="📄 فایل کانفیگ WireGuard"
-                            )
-                        
-                        # Send QR if available
-                        if wg_result.get("qr_code"):
-                            await send_qr_code(
-                                callback.message,
-                                wg_result.get("qr_code"),
-                                f"QR Code - {plan.name}"
-                            )
-                            await callback.message.answer(
-                                f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
-                                f"📦 پلن انتخابی: {plan.name}",
-                                parse_mode="HTML"
-                            )
-                    else:
-                        await callback.message.answer(
-                            f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}",
-                            parse_mode="HTML"
-                        )
-                except Exception as e:
-                    await callback.message.answer(f"❌ خطا در ایجاد اکانت: {str(e)}", parse_mode="HTML")
-            else:
+            if not plan:
                 await callback.message.answer("❌ پلن یافت نشد یا غیرفعال است.", parse_mode="HTML")
+                return
+            available_servers = get_available_servers_for_plan(db, plan.id)
+            if not available_servers:
+                await callback.message.answer("❌ ظرفیت سرورهای این پلن تکمیل است.", parse_mode="HTML")
+                return
+            await callback.message.answer("سرور را برای ساخت اکانت انتخاب کنید:", reply_markup=get_plan_server_select_keyboard(available_servers, f"create_acc_server_{plan.id}_"), parse_mode="HTML")
         finally:
             db.close()
-    
+
+    elif data.startswith("create_acc_server_"):
+        parts = data.split("_")
+        plan_id = int(parts[3])
+        server_id = int(parts[4])
+        db = SessionLocal()
+        try:
+            plan = db.query(Plan).filter(Plan.id == plan_id, Plan.is_active == True).first()
+            server = db.query(Server).filter(Server.id == server_id, Server.is_active == True).first()
+            if not plan or not server:
+                await callback.message.answer("❌ پلن/سرور نامعتبر است.", parse_mode="HTML")
+                return
+            import wireguard
+            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), plan, plan.name, plan.duration_days))
+            if wg_result.get("success"):
+                await callback.message.answer(f"✅ اکانت روی سرور {server.name} ایجاد شد.", parse_mode="HTML")
+                if wg_result.get("config"):
+                    await send_wireguard_config_file(callback.message, wg_result.get("config"), caption="📄 فایل کانفیگ WireGuard")
+                if wg_result.get("qr_code"):
+                    await send_qr_code(callback.message, wg_result.get("qr_code"), f"QR Code - {plan.name}")
+            else:
+                await callback.message.answer(f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}", parse_mode="HTML")
+        finally:
+            db.close()
+
     elif data == "create_acc_custom":
         # Start custom plan flow - ask for name first
         admin_create_account_state[user_id] = {"step": "name"}
@@ -1542,7 +1773,8 @@ async def callback_handler(callback: CallbackQuery, bot):
         try:
             plan = db.query(Plan).filter(Plan.id == plan_id).first()
             if plan:
-                admin_plan_state[user_id] = {"action": "edit", "plan_id": plan_id, "data": {"name": plan.name, "days": str(plan.duration_days), "traffic": str(plan.traffic_gb), "price": str(plan.price), "description": plan.description or ""}}
+                selected_server_ids = [m.server_id for m in db.query(PlanServerMap).filter(PlanServerMap.plan_id == plan.id).all()]
+                admin_plan_state[user_id] = {"action": "edit", "plan_id": plan_id, "data": {"name": plan.name, "days": str(plan.duration_days), "traffic": str(plan.traffic_gb), "price": str(plan.price), "description": plan.description or "", "service_type_id": plan.service_type_id, "server_ids": selected_server_ids}}
                 msg = f"✏️ ویرایش پلن: {plan.name}\n\nمی‌توانید هر فیلدی را که می‌خواهید تغییر دهید:"
                 await callback.message.answer(msg, reply_markup=get_plan_edit_keyboard(plan_id), parse_mode="HTML")
             else:
@@ -1626,11 +1858,60 @@ async def callback_handler(callback: CallbackQuery, bot):
         admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "description", "data": current_state.get("data", {})}
         await callback.message.answer(get_plan_field_prompt("description", current), parse_mode="HTML")
     
+    elif data.startswith("plan_set_service_"):
+        plan_id = data.split("_")[-1]
+        db = SessionLocal()
+        try:
+            service_types = db.query(ServiceType).filter(ServiceType.is_active == True).all()
+            await callback.message.answer("نوع سرویس پلن را انتخاب کنید:", reply_markup=get_service_type_picker_keyboard(service_types, f"plan_pick_service_{plan_id}_"), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("plan_pick_service_"):
+        parts = data.split("_")
+        plan_id = parts[3]
+        service_type_id = int(parts[-1])
+        current_state = admin_plan_state.get(user_id, {"data": {}})
+        current_state.setdefault("data", {})["service_type_id"] = service_type_id
+        current_state["plan_id"] = plan_id
+        current_state["action"] = "create" if plan_id == "new" else "edit"
+        admin_plan_state[user_id] = current_state
+        await callback.message.answer("✅ نوع سرویس ثبت شد.", parse_mode="HTML")
+
+    elif data.startswith("plan_set_servers_"):
+        plan_id = data.split("_")[-1]
+        st = admin_plan_state.get(user_id, {"data": {}})
+        service_type_id = st.get("data", {}).get("service_type_id")
+        if not service_type_id:
+            await callback.message.answer("❌ ابتدا نوع سرویس را انتخاب کنید.", parse_mode="HTML")
+            return
+        db = SessionLocal()
+        try:
+            servers = db.query(Server).filter(Server.service_type_id == service_type_id, Server.is_active == True).all()
+            await callback.message.answer("سرورهای مجاز پلن را انتخاب کنید (چندتایی مجاز است).", reply_markup=get_plan_servers_picker_keyboard(servers, plan_id), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("plan_toggle_server_"):
+        _, _, _, plan_id_token, server_id_s = data.split("_", 4)
+        server_id = int(server_id_s)
+        st = admin_plan_state.setdefault(user_id, {"data": {}})
+        selected = st.setdefault("data", {}).setdefault("server_ids", [])
+        if server_id in selected:
+            selected.remove(server_id)
+            await callback.answer("سرور حذف شد")
+        else:
+            selected.append(server_id)
+            await callback.answer("سرور اضافه شد")
+
+    elif data.startswith("plan_servers_done_"):
+        await callback.message.answer("✅ انتخاب سرورها ذخیره شد.", parse_mode="HTML")
+
     elif data == "plan_save_new":
         state = admin_plan_state.get(user_id, {})
         plan_data = state.get("data", {})
-        if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price")]):
-            await callback.message.answer("❌ لطفاً تمام فیلدهای الزامی را تکمیل کنید.", parse_mode="HTML")
+        if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price"), plan_data.get("service_type_id")]):
+            await callback.message.answer("❌ لطفاً تمام فیلدهای الزامی (از جمله نوع سرویس) را تکمیل کنید.", parse_mode="HTML")
             return
         # Convert Persian/Arabic numbers to English
         days = normalize_numbers(plan_data.get("days", "0"))
@@ -1639,8 +1920,13 @@ async def callback_handler(callback: CallbackQuery, bot):
         db = SessionLocal()
         try:
             plan = Plan(name=plan_data["name"], duration_days=int(days), traffic_gb=int(traffic),
-                       price=int(price), description=plan_data.get("description", ""), is_active=True)
+                       price=int(price), description=plan_data.get("description", ""), is_active=True,
+                       service_type_id=int(plan_data.get("service_type_id")))
             db.add(plan)
+            db.commit()
+            selected_servers = plan_data.get("server_ids", [])
+            for sid in selected_servers:
+                db.add(PlanServerMap(plan_id=plan.id, server_id=int(sid)))
             db.commit()
             if user_id in admin_plan_state:
                 del admin_plan_state[user_id]
@@ -1657,8 +1943,8 @@ async def callback_handler(callback: CallbackQuery, bot):
         plan_id = int(data.split("_")[-1])
         state = admin_plan_state.get(user_id, {})
         plan_data = state.get("data", {})
-        if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price")]):
-            await callback.message.answer("❌ لطفاً تمام فیلدهای الزامی را تکمیل کنید.", parse_mode="HTML")
+        if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price"), plan_data.get("service_type_id")]):
+            await callback.message.answer("❌ لطفاً تمام فیلدهای الزامی (از جمله نوع سرویس) را تکمیل کنید.", parse_mode="HTML")
             return
         # Convert Persian/Arabic numbers to English
         days = normalize_numbers(plan_data.get("days", "0"))
@@ -1673,6 +1959,10 @@ async def callback_handler(callback: CallbackQuery, bot):
                 plan.traffic_gb = int(traffic)
                 plan.price = int(price)
                 plan.description = plan_data.get("description", "")
+                plan.service_type_id = int(plan_data.get("service_type_id") or 0) or plan.service_type_id
+                db.query(PlanServerMap).filter(PlanServerMap.plan_id == plan.id).delete()
+                for sid in plan_data.get("server_ids", []):
+                    db.add(PlanServerMap(plan_id=plan.id, server_id=int(sid)))
                 db.commit()
                 if user_id in admin_plan_state:
                     del admin_plan_state[user_id]
@@ -1693,15 +1983,48 @@ async def callback_handler(callback: CallbackQuery, bot):
         db = SessionLocal()
         try:
             plan = db.query(Plan).filter(Plan.id == plan_id, Plan.is_active == True).first()
-            if plan:
-                user_payment_state[user_id] = {"plan_id": plan_id, "plan_name": plan.name, "price": plan.price}
-                msg = f"💳 پرداخت پلن \"{plan.name}\"\n\n• حجم: {plan.traffic_gb} گیگ\n• مدت: {plan.duration_days} روز\n• قیمت: {plan.price} تومان\n\nروش پرداخت را انتخاب کنید:"
-                await callback.message.answer(msg, reply_markup=get_payment_method_keyboard(plan_id), parse_mode="HTML")
-            else:
+            if not plan:
                 await callback.message.answer("❌ پلن یافت نشد یا غیرفعال است.", parse_mode="HTML")
+                return
+            available_servers = get_available_servers_for_plan(db, plan.id)
+            if available_servers:
+                user_payment_state[user_id] = {"plan_id": plan_id, "plan_name": plan.name, "price": plan.price}
+                if len(available_servers) > 1:
+                    await callback.message.answer("ابتدا سرور را انتخاب کنید:", reply_markup=get_plan_server_select_keyboard(available_servers, f"buy_pick_server_{plan.id}_"), parse_mode="HTML")
+                    return
+                user_payment_state[user_id]["server_id"] = available_servers[0].id
+            else:
+                await callback.message.answer("❌ ظرفیت سرورهای این پلن تکمیل است.", parse_mode="HTML")
+                return
+
+            msg = (
+                f'💳 پرداخت پلن "{plan.name}"\n\n'
+                f"• حجم: {plan.traffic_gb} گیگ\n"
+                f"• مدت: {plan.duration_days} روز\n"
+                f"• قیمت: {plan.price} تومان\n\n"
+                "روش پرداخت را انتخاب کنید:"
+            )
+            await callback.message.answer(msg, reply_markup=get_payment_method_keyboard(plan_id), parse_mode="HTML")
         finally:
             db.close()
-    
+
+    elif data.startswith("buy_pick_server_"):
+        parts = data.split("_")
+        plan_id = int(parts[3])
+        server_id = int(parts[4])
+        db = SessionLocal()
+        try:
+            plan = db.query(Plan).filter(Plan.id == plan_id, Plan.is_active == True).first()
+            if not plan:
+                await callback.message.answer("❌ پلن معتبر نیست.", parse_mode="HTML")
+                return
+            state = user_payment_state.get(user_id, {})
+            state.update({"plan_id": plan_id, "plan_name": plan.name, "price": plan.price, "server_id": server_id})
+            user_payment_state[user_id] = state
+            await callback.message.answer("✅ سرور انتخاب شد. حالا روش پرداخت را انتخاب کنید:", reply_markup=get_payment_method_keyboard(plan_id), parse_mode="HTML")
+        finally:
+            db.close()
+
     elif data.startswith("pay_card_"):
         payload = data.replace("pay_card_", "")
         parts = payload.split("_")
@@ -1720,7 +2043,8 @@ async def callback_handler(callback: CallbackQuery, bot):
                     "price": final_price,
                     "method": "card_to_card",
                     "renew_config_id": renew_config_id,
-                    "gift_code": current.get("gift_code")
+                    "gift_code": current.get("gift_code"),
+                    "server_id": current.get("server_id")
                 }
                 msg = f"💳 پرداخت کارت به کارت\n\nپلن: {plan.name}\nقیمت نهایی: {final_price} تومان\n\nلطفاً به شماره کارت زیر واریز کنید:\n\n🪪 شماره کارت:\n<code>{CARD_NUMBER}</code>\n\n👤 صاحب حساب: {CARD_HOLDER}\n\nپس از واریز، تصویر فیش واریزی را ارسال کنید."
                 await callback.message.answer(msg, parse_mode="HTML")
@@ -1780,22 +2104,13 @@ async def callback_handler(callback: CallbackQuery, bot):
                 try:
                     import wireguard
                     plan = db.query(Plan).filter(Plan.id == receipt.plan_id).first()
-                    wg_result = wireguard.create_wireguard_account(
-                        mikrotik_host=MIKROTIK_HOST,
-                        mikrotik_user=MIKROTIK_USER,
-                        mikrotik_pass=MIKROTIK_PASS,
-                        mikrotik_port=MIKROTIK_PORT,
-                        wg_interface=WG_INTERFACE,
-                        wg_server_public_key=WG_SERVER_PUBLIC_KEY,
-                        wg_server_endpoint=WG_SERVER_ENDPOINT,
-                        wg_server_port=WG_SERVER_PORT,
-                        wg_client_network_base=WG_CLIENT_NETWORK_BASE,
-                        wg_client_dns=WG_CLIENT_DNS,
-                        user_telegram_id=receipt.user_telegram_id,
-                        plan_id=receipt.plan_id,
-                        plan_name=receipt.plan_name,
-                        duration_days=plan.duration_days if plan else None
-                    )
+                    server = db.query(Server).filter(Server.id == receipt.server_id).first() if receipt.server_id else None
+                    if not server and plan:
+                        available = get_available_servers_for_plan(db, plan.id)
+                        server = available[0] if available else None
+                    if not server:
+                        raise ValueError("سرور در دسترس برای این پلن وجود ندارد")
+                    wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, receipt.user_telegram_id, plan, receipt.plan_name, plan.duration_days if plan else None))
                     
                     if wg_result.get("success"):
                         wg_created = True
@@ -1973,6 +2288,7 @@ async def handle_receipt_photo(message: Message):
             plan_name=payment_info["plan_name"],
             amount=payment_info["price"],
             payment_method="card_to_card",
+            server_id=payment_info.get("server_id"),
             receipt_file_id=file_id,
             status="pending"
         )

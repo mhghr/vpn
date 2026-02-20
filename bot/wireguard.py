@@ -473,7 +473,8 @@ def save_wireguard_config_to_db(
     wg_server_endpoint: str = None,
     wg_server_port: int = None,
     wg_client_dns: str = None,
-    duration_days: int = None
+    duration_days: int = None,
+    server_id: int = None
 ) -> WireGuardConfig:
     """Save WireGuard config to database"""
     logger.info(f"[Step 7] Saving WireGuard config to database for user {user_telegram_id}...")
@@ -497,7 +498,8 @@ def save_wireguard_config_to_db(
             wg_server_port=wg_server_port,
             wg_client_dns=wg_client_dns,
             status="active",
-            expires_at=expires_at
+            expires_at=expires_at,
+            server_id=server_id
         )
         
         db.add(config)
@@ -653,7 +655,8 @@ def create_wireguard_account(
     user_telegram_id: str = None,
     plan_id: int = None,
     plan_name: str = None,
-    duration_days: int = None
+    duration_days: int = None,
+    server_id: int = None
 ) -> dict:
     """
     Create a WireGuard account on MikroTik using RouterOS API
@@ -786,7 +789,8 @@ def create_wireguard_account(
             wg_server_endpoint=wg_server_endpoint,
             wg_server_port=wg_server_port,
             wg_client_dns=wg_client_dns,
-            duration_days=duration_days
+            duration_days=duration_days,
+            server_id=server_id
         )
         
         # Step 8: Generate config text
