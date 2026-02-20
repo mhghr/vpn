@@ -63,9 +63,10 @@ apt-get install -y \
   nginx certbot python3-certbot-nginx
 
 echo "[2/8] Configuring PostgreSQL..."
-sudo -u postgres psql -v db_user="$DB_USER" -v db_pass="$DB_PASS" <<'SQL'
+pushd /tmp >/dev/null
+sudo -u postgres psql -d postgres -v db_user="$DB_USER" -v db_pass="$DB_PASS" <<'SQL'
 DO
-\$\$
+$$
 BEGIN
    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = :'db_user') THEN
       EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_pass');
@@ -73,10 +74,12 @@ BEGIN
       EXECUTE format('ALTER ROLE %I WITH PASSWORD %L', :'db_user', :'db_pass');
    END IF;
 END
-\$\$;
+$$;
 SQL
-sudo -u postgres psql -v db_name="$DB_NAME" -tc "SELECT 1 FROM pg_database WHERE datname = :'db_name'" | grep -q 1 || \
+if ! sudo -u postgres psql -d postgres -v db_name="$DB_NAME" -tAc "SELECT 1 FROM pg_database WHERE datname = :'db_name'" | grep -q 1; then
   sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
+fi
+popd >/dev/null
 
 echo "[3/8] Switching project to webhook runtime..."
 if [[ -f "$BOT_DIR/main.py" && ! -f "$BOT_DIR/main.polling.py" ]]; then
