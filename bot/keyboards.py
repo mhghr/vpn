@@ -1,31 +1,32 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 
 def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
-        [InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
-        [InlineKeyboardButton(text="🔗 کانفیگ‌های من", callback_data="configs"), InlineKeyboardButton(text="📖 آموزش اتصال", callback_data="howto")],
-        [InlineKeyboardButton(text="📚 آموزش", callback_data="user_tutorials"), InlineKeyboardButton(text="💰 کیف پول", callback_data="wallet")],
-        [InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
-        [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile")]
+        [KeyboardButton(text="🛒 خرید جدید"), KeyboardButton(text="📱 نرم‌افزارها")],
+        [KeyboardButton(text="🔗 کانفیگ‌های من"), KeyboardButton(text="📖 آموزش اتصال")],
+        [KeyboardButton(text="📚 آموزش"), KeyboardButton(text="💰 کیف پول")],
+        [KeyboardButton(text="🧪 اکانت تست")],
+        [KeyboardButton(text="👤 حساب کاربری")],
     ]
     if is_admin_user:
-        buttons.append([InlineKeyboardButton(text="⚙️ مدیریت", callback_data="admin")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        buttons.append([KeyboardButton(text="⚙️ مدیریت")])
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 
 def get_admin_keyboard(pending_panel=None):
-    buttons = [
-        [InlineKeyboardButton(text="🖥️ پنل‌ها", callback_data="admin_panels"), InlineKeyboardButton(text="🔍 جستجو", callback_data="admin_search_user")],
-        [InlineKeyboardButton(text="📦 پلن ها", callback_data="admin_plans"), InlineKeyboardButton(text="💳 فیش‌های پرداخت", callback_data="admin_receipts")],
-        [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
-        [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
-        [InlineKeyboardButton(text="🤝 نمایندگی‌ها", callback_data="admin_representatives"), InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
-    ]
+    buttons = []
     if pending_panel:
-        buttons.insert(0, [InlineKeyboardButton(text=f"🔔 درخواست پنل جدید ({pending_panel.get('name', 'Unknown')})", callback_data="admin_pending_panel")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+        buttons.append([KeyboardButton(text="🔔 درخواست پنل جدید")])
+    buttons.extend([
+        [KeyboardButton(text="🖥️ پنل‌ها"), KeyboardButton(text="🔍 جستجو")],
+        [KeyboardButton(text="📦 پلن ها"), KeyboardButton(text="💳 فیش‌های پرداخت")],
+        [KeyboardButton(text="🎁 کد تخفیف"), KeyboardButton(text="🧩 انواع سرویس")],
+        [KeyboardButton(text="🖧 مدیریت سرورها"), KeyboardButton(text="🔗 ساخت اکانت")],
+        [KeyboardButton(text="🤝 نمایندگی‌ها"), KeyboardButton(text="📚 آموزش ادمین")],
+        [KeyboardButton(text="🔙 بازگشت")],
+    ])
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 
 def get_panels_keyboard(pending_panel=None):
@@ -162,23 +163,59 @@ def get_found_users_keyboard(users: list):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_admin_user_manage_keyboard(user_id: int, is_org: bool = False, is_blocked: bool = False):
+def get_admin_user_manage_keyboard(
+    user_id: int,
+    telegram_id: int,
+    full_name: str,
+    username: str,
+    wallet_balance: int,
+    joined_date: str,
+    is_member: bool,
+    is_admin: bool,
+    config_count: int,
+    is_org: bool = False,
+    is_blocked: bool = False,
+    show_wallet_actions: bool = False,
+    show_finance_panel: bool = False,
+    total_traffic_text: str = "-",
+    price_per_gb_text: str = "-",
+    debt_text: str = "-",
+    last_settlement_text: str = "-",
+):
     org_label = "🏢 تبدیل به مشتری عادی" if is_org else "🏢 تبدیل به مشتری سازمانی"
     block_label = "✅ رفع مسدودی کاربر" if is_blocked else "⛔ مسدود کردن کاربر"
 
     buttons = [
-        [InlineKeyboardButton(text="➕ افزایش موجودی", callback_data=f"wallet_inc_{user_id}"), InlineKeyboardButton(text="➖ کاهش موجودی", callback_data=f"wallet_dec_{user_id}")],
+        [InlineKeyboardButton(text=f"🆔 یوزر آیدی: {telegram_id}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"👤 نام: {full_name}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"📛 نام کاربری: {username}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"💰 موجودی: {wallet_balance:,} تومان", callback_data=f"admin_user_wallet_actions_{user_id}")],
+        [InlineKeyboardButton(text=f"📅 تاریخ عضویت: {joined_date}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🟢 وضعیت عضویت: {'فعال' if is_member else 'غیرفعال'}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"⚙️ ادمین: {'بله' if is_admin else 'خیر'}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🔐 وضعیت دسترسی: {'مسدود' if is_blocked else 'فعال'}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🏢 نوع مشتری: {'سازمانی' if is_org else 'عادی'}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🔗 تعداد کانفیگ‌ها: {config_count}", callback_data="admin_user_info_ro")],
         [InlineKeyboardButton(text="🔗 مشاهده کانفیگ‌ها", callback_data=f"admin_user_configs_{user_id}")],
         [InlineKeyboardButton(text=block_label, callback_data=f"admin_user_block_toggle_{user_id}"), InlineKeyboardButton(text=org_label, callback_data=f"admin_user_org_toggle_{user_id}")],
     ]
 
-    if is_org:
-        buttons.extend([
-            [InlineKeyboardButton(text="📊 مجموع ترافیک لینک‌های فعال", callback_data=f"admin_user_org_total_traffic_{user_id}")],
-            [InlineKeyboardButton(text="💰 هزینه هر گیگ", callback_data=f"admin_user_org_price_{user_id}"), InlineKeyboardButton(text="🧾 مبلغ بدهکاری", callback_data=f"admin_user_org_debt_{user_id}")],
-            [InlineKeyboardButton(text="✅ تسویه حساب انجام شد", callback_data=f"admin_user_org_settle_{user_id}")],
-            [InlineKeyboardButton(text="🕓 زمان آخرین تسویه", callback_data=f"admin_user_org_last_settlement_{user_id}")],
+    if show_wallet_actions:
+        buttons.append([
+            InlineKeyboardButton(text="➕ افزایش موجودی", callback_data=f"wallet_inc_{user_id}"),
+            InlineKeyboardButton(text="➖ کاهش موجودی", callback_data=f"wallet_dec_{user_id}"),
         ])
+
+    if is_org:
+        buttons.append([InlineKeyboardButton(text="💼 مالی", callback_data=f"admin_user_finance_{user_id}")])
+        if show_finance_panel:
+            buttons.extend([
+                [InlineKeyboardButton(text=f"📊 مجموع ترافیک لینک‌های فعال: {total_traffic_text}", callback_data=f"admin_user_org_total_traffic_{user_id}")],
+                [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data=f"admin_user_org_price_{user_id}")],
+                [InlineKeyboardButton(text=f"🧾 مبلغ بدهکاری: {debt_text}", callback_data=f"admin_user_org_debt_{user_id}")],
+                [InlineKeyboardButton(text=f"🕓 زمان آخرین تسویه: {last_settlement_text}", callback_data=f"admin_user_org_last_settlement_{user_id}")],
+                [InlineKeyboardButton(text="✅ تسویه حساب انجام شد", callback_data=f"admin_user_org_settle_{user_id}")],
+            ])
 
     buttons.append([InlineKeyboardButton(text=" بازگشت به جستجو", callback_data="admin_search_user"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

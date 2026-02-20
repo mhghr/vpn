@@ -7,7 +7,7 @@ from datetime import datetime
 from datetime import datetime, timedelta
 
 from aiogram import Dispatcher
-from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import SessionLocal, engine
 from models import User, Panel, Plan, PaymentReceipt, WireGuardConfig, GiftCode, ServiceType, Server, PlanServerMap, ServiceTutorial, Representative
@@ -203,6 +203,36 @@ def build_admin_user_info_message(db, user_obj: User) -> str:
             f"• زمان آخرین تسویه: {fz['last_settlement']}"
         )
     return msg
+
+
+def get_admin_user_manage_view(db, user_obj: User, show_wallet_actions: bool = False, show_finance_panel: bool = False):
+    username = f"@{user_obj.username}" if user_obj.username else "ندارد"
+    joined_date = format_jalali_date(user_obj.joined_at) if user_obj.joined_at else "نامشخص"
+    all_configs_count = db.query(WireGuardConfig).filter(WireGuardConfig.user_telegram_id == user_obj.telegram_id).count()
+    financials = calculate_org_user_financials(db, user_obj) if user_obj.is_organization_customer else None
+
+    return (
+        "👤 مدیریت کاربر",
+        get_admin_user_manage_keyboard(
+            user_id=user_obj.id,
+            telegram_id=user_obj.telegram_id,
+            full_name=f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip() or "ندارد",
+            username=username,
+            wallet_balance=user_obj.wallet_balance or 0,
+            joined_date=joined_date,
+            is_member=bool(user_obj.is_member),
+            is_admin=bool(user_obj.is_admin),
+            config_count=all_configs_count,
+            is_org=bool(user_obj.is_organization_customer),
+            is_blocked=bool(user_obj.is_blocked),
+            show_wallet_actions=show_wallet_actions,
+            show_finance_panel=show_finance_panel,
+            total_traffic_text=(f"{financials['total_traffic_gb']:.2f} GB" if financials else "-"),
+            price_per_gb_text=(f"{financials['price_per_gb']:,} تومان" if financials else "-"),
+            debt_text=(f"{financials['debt_amount']:,} تومان" if financials else "-"),
+            last_settlement_text=(financials['last_settlement'] if financials else "-"),
+        ),
+    )
 
 
 async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int = None):
@@ -576,6 +606,79 @@ async def register_panel_handler(message: Message):
     msg = f"🔔 درخواست ثبت پنل جدید\n\n📍 اطلاعات پنل:\n• نام: {pending.get('name', 'Unknown')}\n• آی پی: {pending.get('ip', 'Unknown')}\n• لوکیشن: {pending.get('location', 'Unknown')}\n• پورت: {pending.get('port', 'Unknown')}\n• مسیر: {pending.get('path', '/')}\n\n📊 اطلاعات سیستم:\n• هاست نیم: {pending.get('system_info', {}).get('hostname', 'Unknown')}\n• سیستم عامل: {pending.get('system_info', {}).get('os', 'Unknown')}"
     await message.answer(msg, reply_markup=get_pending_panel_keyboard(), parse_mode="HTML")
 
+
+
+
+@dp.message(lambda message: not is_admin(message.from_user.id) and (message.text or "").strip() in {
+    "🛒 خرید جدید", "📱 نرم‌افزارها", "🔗 کانفیگ‌های من", "📖 آموزش اتصال", "📚 آموزش", "💰 کیف پول", "🧪 اکانت تست", "👤 حساب کاربری"
+})
+async def handle_user_menu_buttons(message: Message):
+    text = (message.text or "").strip()
+    user_id = message.from_user.id
+
+    if text == "🛒 خرید جدید":
+        db = SessionLocal()
+        try:
+            plans = db.query(Plan).filter(Plan.is_active == True).all()
+            if plans:
+                await message.answer("🛒 خرید سرویس وی پی ان\n\nیکی از پلن‌های زیر را انتخاب کنید:\n", reply_markup=get_buy_keyboard(plans), parse_mode="HTML")
+            else:
+                await message.answer("❌ در حال حاضر پلن فعالی برای خرید وجود ندارد.", parse_mode="HTML")
+        finally:
+            db.close()
+        return
+
+    if text == "📱 نرم‌افزارها":
+        await message.answer(
+            "📱 نرم‌افزارهای مورد نیاز\n\nبرای اتصال به وی‌پی‌ان از کانفیگ WireGuard استفاده کنید.\nنرم‌افزار مناسب سیستم‌عامل خود را دانلود کنید:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🍎 آیفون (iOS)", url="https://apps.apple.com/us/app/wireguard/id1441195209")],
+                [InlineKeyboardButton(text="📱 اندروید", url="https://play.google.com/store/apps/details?id=com.wireguard.android&hl=en")],
+                [InlineKeyboardButton(text="💻 ویندوز/مک/لینوکس", url="https://www.wireguard.com/install/")],
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    if text == "📖 آموزش اتصال":
+        await message.answer(
+            "📖 راهنمای اتصال به وی‌پی‌ان\n\nبرای اتصال به سرویس وی‌پی‌ان مراحل زیر را دنبال کنید:\n\n1️⃣ نرم‌افزار WireGuard را نصب کنید\n2️⃣ فایل کانفیگ را دریافت کنید\n3️⃣ فایل را در نرم‌افزار ایمپورت کنید\n4️⃣ به سرور متصل شوید\n\nبرای دریافت کانفیگ، به بخش «کانفیگ‌های من» مراجعه کنید.",
+            parse_mode="HTML"
+        )
+        return
+
+    if text == "🔗 کانفیگ‌های من":
+        db = SessionLocal()
+        try:
+            configs = db.query(WireGuardConfig).filter(WireGuardConfig.user_telegram_id == str(user_id)).order_by(WireGuardConfig.created_at.desc()).all()
+            if configs:
+                await message.answer("🔗 کانفیگ های من\n\nبرای مشاهده جزئیات، کانفیگ موردنظر را انتخاب کنید:", reply_markup=get_configs_keyboard(configs), parse_mode="HTML")
+            else:
+                await message.answer(MY_CONFIGS_MESSAGE, parse_mode="HTML")
+        finally:
+            db.close()
+        return
+
+    if text == "💰 کیف پول":
+        db = SessionLocal()
+        try:
+            user = get_user(db, str(user_id))
+            await message.answer(WALLET_MESSAGE.format(balance=user.wallet_balance if user else 0), parse_mode="HTML")
+        finally:
+            db.close()
+        return
+
+    if text == "👤 حساب کاربری":
+        await message.answer("برای مشاهده جزئیات حساب از دکمه‌های داخل صفحه استفاده کنید.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👤 نمایش حساب", callback_data="profile")]]), parse_mode="HTML")
+        return
+
+    if text == "🧪 اکانت تست":
+        await message.answer("برای ایجاد اکانت تست روی دکمه زیر بزنید.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🧪 ایجاد اکانت تست", callback_data="test_account_create")]]), parse_mode="HTML")
+        return
+
+    if text == "📚 آموزش":
+        await message.answer("📚 لیست آموزش‌ها:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📚 آموزش‌ها", callback_data="user_tutorials")]]), parse_mode="HTML")
+        return
 
 @dp.message(lambda message: is_admin(message.from_user.id))
 async def handle_admin_input(message: Message):
@@ -1173,6 +1276,34 @@ async def handle_admin_input(message: Message):
         await message.answer("❌ لطفاً از دکمه‌های مدیریت پلن استفاده کنید.", parse_mode="HTML")
         return
     
+    admin_menu_map = {
+        "⚙️ مدیریت": "main_admin",
+        "🖥️ پنل‌ها": "admin_panels",
+        "🔍 جستجو": "admin_search_user",
+        "📦 پلن ها": "admin_plans",
+        "💳 فیش‌های پرداخت": "admin_receipts",
+        "🎁 کد تخفیف": "admin_discount_create",
+        "🧩 انواع سرویس": "admin_service_types",
+        "🖧 مدیریت سرورها": "admin_servers",
+        "🔗 ساخت اکانت": "admin_create_account",
+        "🤝 نمایندگی‌ها": "admin_representatives",
+        "📚 آموزش ادمین": "admin_tutorials",
+        "🔔 درخواست پنل جدید": "admin_pending_panel",
+        "🔙 بازگشت": "back_to_main",
+    }
+    if text in admin_menu_map:
+        action = admin_menu_map[text]
+        if action == "main_admin":
+            pending_panel = load_pending_panel()
+            await message.answer(ADMIN_MESSAGE, reply_markup=get_admin_keyboard(pending_panel), parse_mode="HTML")
+            return
+        if action == "admin_search_user":
+            admin_user_search_state[user_id] = {"active": True}
+            await message.answer(SEARCH_USER_MESSAGE, parse_mode="HTML")
+            return
+        await message.answer("از دکمه‌های داخل صفحه استفاده کنید:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="▶️ باز کردن بخش", callback_data=action)]]), parse_mode="HTML")
+        return
+
     if user_id in admin_user_search_state:
         query = text.strip().lower()
         db = SessionLocal()
@@ -1462,6 +1593,9 @@ async def callback_handler(callback: CallbackQuery, bot):
         finally:
             db.close()
 
+    elif data == "admin_user_info_ro":
+        await callback.answer("این بخش فقط جهت نمایش است.", show_alert=False)
+
     elif data.startswith("cfg_enterprise_ro_"):
         await callback.answer("این بخش فقط جهت نمایش است و توسط ادمین مدیریت می‌شود.", show_alert=True)
 
@@ -1742,6 +1876,8 @@ async def callback_handler(callback: CallbackQuery, bot):
         "admin_user_org_debt_",
         "admin_user_org_last_settlement_",
         "admin_user_org_settle_",
+        "admin_user_wallet_actions_",
+        "admin_user_finance_",
     )):
         target_user_id = int(data.replace("admin_user_", ""))
         db = SessionLocal()
@@ -1750,16 +1886,8 @@ async def callback_handler(callback: CallbackQuery, bot):
             if not user_obj:
                 await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
                 return
-            msg = build_admin_user_info_message(db, user_obj)
-            await callback.message.answer(
-                msg,
-                reply_markup=get_admin_user_manage_keyboard(
-                    user_obj.id,
-                    is_org=user_obj.is_organization_customer,
-                    is_blocked=user_obj.is_blocked,
-                ),
-                parse_mode="HTML"
-            )
+            msg, keyboard = get_admin_user_manage_view(db, user_obj)
+            await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
         finally:
             db.close()
 
@@ -1775,11 +1903,8 @@ async def callback_handler(callback: CallbackQuery, bot):
             db.commit()
             state_text = "مسدود شد" if user_obj.is_blocked else "از مسدودی خارج شد"
             await callback.message.answer(f"✅ کاربر با موفقیت {state_text}.", parse_mode="HTML")
-            await callback.message.answer(
-                build_admin_user_info_message(db, user_obj),
-                reply_markup=get_admin_user_manage_keyboard(user_obj.id, is_org=user_obj.is_organization_customer, is_blocked=user_obj.is_blocked),
-                parse_mode="HTML"
-            )
+            msg, keyboard = get_admin_user_manage_view(db, user_obj)
+            await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
         finally:
             db.close()
 
@@ -1797,14 +1922,37 @@ async def callback_handler(callback: CallbackQuery, bot):
             db.commit()
             state_text = "مشتری سازمانی" if user_obj.is_organization_customer else "مشتری عادی"
             await callback.message.answer(f"✅ نوع مشتری با موفقیت به «{state_text}» تغییر کرد.", parse_mode="HTML")
-            await callback.message.answer(
-                build_admin_user_info_message(db, user_obj),
-                reply_markup=get_admin_user_manage_keyboard(user_obj.id, is_org=user_obj.is_organization_customer, is_blocked=user_obj.is_blocked),
-                parse_mode="HTML"
-            )
+            msg, keyboard = get_admin_user_manage_view(db, user_obj)
+            await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
         finally:
             db.close()
 
+
+    elif data.startswith("admin_user_wallet_actions_"):
+        target_user_id = int(data.replace("admin_user_wallet_actions_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj:
+                await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
+                return
+            msg, keyboard = get_admin_user_manage_view(db, user_obj, show_wallet_actions=True)
+            await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_finance_"):
+        target_user_id = int(data.replace("admin_user_finance_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj:
+                await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
+                return
+            msg, keyboard = get_admin_user_manage_view(db, user_obj, show_finance_panel=True)
+            await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
+        finally:
+            db.close()
     elif data.startswith("admin_user_org_total_traffic_"):
         target_user_id = int(data.replace("admin_user_org_total_traffic_", ""))
         db = SessionLocal()
@@ -1877,11 +2025,8 @@ async def callback_handler(callback: CallbackQuery, bot):
             user_obj.org_last_settlement_at = datetime.utcnow()
             db.commit()
             await callback.message.answer("✅ تسویه حساب انجام شد و مصرف لینک‌های فعال صفر شد.", parse_mode="HTML")
-            await callback.message.answer(
-                build_admin_user_info_message(db, user_obj),
-                reply_markup=get_admin_user_manage_keyboard(user_obj.id, is_org=user_obj.is_organization_customer, is_blocked=user_obj.is_blocked),
-                parse_mode="HTML"
-            )
+            msg, keyboard = get_admin_user_manage_view(db, user_obj, show_finance_panel=True)
+            await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
         finally:
             db.close()
 
