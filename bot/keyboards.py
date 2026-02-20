@@ -1,6 +1,20 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
+def get_state_controls_keyboard(back_callback: str = None, cancel_callback: str = None, include_main: bool = True):
+    buttons = []
+    row = []
+    if back_callback:
+        row.append(InlineKeyboardButton(text="🔙 بازگشت", callback_data=back_callback))
+    if cancel_callback:
+        row.append(InlineKeyboardButton(text="❌ انصراف", callback_data=cancel_callback))
+    if row:
+        buttons.append(row)
+    if include_main:
+        buttons.append([InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
         [InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
