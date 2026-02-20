@@ -79,7 +79,7 @@ class Plan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    service_type_id = Column(Integer, ForeignKey("service_types.id"), nullable=True, index=True)
+    service_type_id = Column(Integer, nullable=True)  # No FK until service_types table exists
     duration_days = Column(Integer, nullable=False)
     traffic_gb = Column(Float, nullable=False)
     price = Column(Integer, nullable=False)
@@ -113,7 +113,7 @@ class PaymentReceipt(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
     approved_by = Column(String, nullable=True)
-    server_id = Column(Integer, ForeignKey("servers.id"), nullable=True, index=True)
+    server_id = Column(Integer, nullable=True)  # No FK until servers table exists
 
 
 class WireGuardConfig(Base):
@@ -123,7 +123,7 @@ class WireGuardConfig(Base):
     user_telegram_id = Column(String, index=True, nullable=False)
     plan_name = Column(String, nullable=True)
     plan_id = Column(Integer, nullable=True)
-    server_id = Column(Integer, ForeignKey("servers.id"), nullable=True, index=True)
+    server_id = Column(Integer, nullable=True)  # No FK until servers table exists
     private_key = Column(Text, nullable=False)
     public_key = Column(Text, nullable=False)
     client_ip = Column(String, nullable=False)

@@ -33,14 +33,12 @@ def init_db():
         PaymentReceipt,
         WireGuardConfig,
         GiftCode,
-        ServiceType,
-        Server,
-        PlanServerMap,
     )
 
     Base.metadata.create_all(bind=engine)
 
     with engine.begin() as conn:
+        # WireGuard config columns
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS cumulative_rx_bytes BIGINT DEFAULT 0"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS cumulative_tx_bytes BIGINT DEFAULT 0"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS last_rx_counter BIGINT DEFAULT 0"))
@@ -49,21 +47,56 @@ def init_db():
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS low_traffic_alert_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS expiry_alert_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS threshold_alert_sent BOOLEAN DEFAULT FALSE"))
-        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS server_id INTEGER"))
+        
+        # Add server_id column if it doesn't exist (for FK to servers table)
+        try:
+            conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS server_id INTEGER REFERENCES servers(id)"))
+        except Exception:
+            # Table may not exist, skip
+            pass
 
+        # User columns
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS has_used_test_account BOOLEAN DEFAULT FALSE"))
-        conn.execute(text("ALTER TABLE plans ALTER COLUMN traffic_gb TYPE DOUBLE PRECISION USING traffic_gb::double precision"))
-        conn.execute(text("ALTER TABLE plans ADD COLUMN IF NOT EXISTS service_type_id INTEGER"))
-        conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER"))
 
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_servers_service_type_id ON servers(service_type_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_plan_server_map_plan_id ON plan_server_map(plan_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_plan_server_map_server_id ON plan_server_map(server_id)"))
+        # Plan columns
+        try:
+            conn.execute(text("ALTER TABLE plans ALTER COLUMN traffic_gb TYPE DOUBLE PRECISION USING traffic_gb::double precision"))
+        except Exception:
+            pass
+        
+        try:
+            conn.execute(text("ALTER TABLE plans ADD COLUMN IF NOT EXISTS service_type_id INTEGER REFERENCES service_types(id)"))
+        except Exception:
+            pass
 
-        conn.execute(text("""
-            INSERT INTO service_types (code, name, is_active, created_at)
-            VALUES
-                ('wireguard', 'WireGuard', TRUE, NOW()),
-                ('v2ray', 'V2Ray', TRUE, NOW())
-            ON CONFLICT (code) DO NOTHING
-        """))
+        # Payment receipt columns
+        try:
+            conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER REFERENCES servers(id)"))
+        except Exception:
+            pass
+
+        # Try to create indexes for tables that may not exist yet
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_servers_service_type_id ON servers(service_type_id)"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_plan_server_map_plan_id ON plan_server_map(plan_id)"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_plan_server_map_server_id ON plan_server_map(server_id)"))
+        except Exception:
+            pass
+
+        # Try to insert service types if table exists
+        try:
+            conn.execute(text("""
+                INSERT INTO service_types (code, name, is_active, created_at)
+                VALUES
+                    ('wireguard', 'WireGuard', TRUE, NOW()),
+                    ('v2ray', 'V2Ray', TRUE, NOW())
+                ON CONFLICT (code) DO NOTHING
+            """))
+        except Exception:
+            pass
