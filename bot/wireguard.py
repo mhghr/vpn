@@ -105,6 +105,19 @@ def format_endpoint_host(host: str):
     return host
 
 
+def build_peer_comment(user_telegram_id: str, client_ip: str, legacy: bool = False) -> str:
+    """Build MikroTik peer comment from user id and client IP."""
+    if not user_telegram_id:
+        last_octet = client_ip.rsplit('.', 1)[-1] if client_ip and '.' in client_ip else client_ip
+        return f"wg-{last_octet}" if last_octet else "wg-client"
+
+    if legacy:
+        last_octet = client_ip.rsplit('.', 1)[-1] if client_ip and '.' in client_ip else client_ip
+        return f"{user_telegram_id}-{last_octet}" if last_octet else str(user_telegram_id)
+
+    return f"{client_ip}-{user_telegram_id}"
+
+
 def _safe_int(value) -> int:
     try:
         return int(str(value).strip())
@@ -122,7 +135,7 @@ def _read_peer_counter(peer: dict, *candidate_keys: str) -> int:
 
 def _resolve_config_for_peer(peer: dict, config_index: dict):
     """Match MikroTik peer with a DB config using comment or allowed-address."""
-    comment = peer.get("comment", "")
+    comment = (peer.get("comment", "") or "").strip()
     if comment and comment in config_index:
         return config_index[comment]
 
@@ -154,10 +167,9 @@ def sync_wireguard_usage_counters(
 
         config_index = {}
         for config in active_configs:
-            ip_last_octet = config.client_ip.rsplit('.', 1)[-1] if config.client_ip else ""
-            comment_key = f"{config.user_telegram_id}-{ip_last_octet}" if ip_last_octet else ""
-            if comment_key:
-                config_index[comment_key] = config
+            if config.user_telegram_id and config.client_ip:
+                config_index[build_peer_comment(config.user_telegram_id, config.client_ip)] = config
+                config_index[build_peer_comment(config.user_telegram_id, config.client_ip, legacy=True)] = config
             if config.client_ip:
                 config_index[config.client_ip] = config
 
@@ -215,10 +227,10 @@ def sync_wireguard_usage_counters(
 
 
 def _peer_matches_config(peer: dict, config: WireGuardConfig) -> bool:
-    comment = peer.get("comment", "")
-    ip_last_octet = config.client_ip.rsplit('.', 1)[-1] if config.client_ip else ""
-    expected_comment = f"{config.user_telegram_id}-{ip_last_octet}" if ip_last_octet else ""
-    if expected_comment and comment == expected_comment:
+    comment = (peer.get("comment", "") or "").strip()
+    expected_comment = build_peer_comment(config.user_telegram_id, config.client_ip)
+    legacy_comment = build_peer_comment(config.user_telegram_id, config.client_ip, legacy=True)
+    if comment in {expected_comment, legacy_comment}:
         return True
 
     allowed_address = (peer.get("allowed-address") or "").split('/')[0].strip()
@@ -735,9 +747,7 @@ def create_wireguard_account(
         # Step 5: Add peer to MikroTik
         logger.info("[Step 5] Adding peer to MikroTik...")
         try:
-            # Create peer name as: telegramID-lastOctet (e.g., 6245412936-10)
-            last_octet = client_ip.rsplit('.', 1)[-1]
-            peer_name = f"{user_telegram_id}-{last_octet}" if user_telegram_id else f"wg-{last_octet}"
+            peer_name = build_peer_comment(user_telegram_id, client_ip)
             
             peer_data = {
                 'interface': wg_interface,
@@ -822,6 +832,7 @@ def create_wireguard_account(
             "client_ip": client_ip,
             "config": config,
             "qr_code": f"data:image/png;base64,{qr_base64}" if qr_base64 else None,
+            "peer_comment": peer_name,
             "config_id": db_config.id,
             "expires_at": db_config.expires_at
         }

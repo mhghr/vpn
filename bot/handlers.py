@@ -186,6 +186,29 @@ def get_plan_creation_summary(data: dict) -> str:
     )
 
 
+def parse_positive_number(value: str, allow_float: bool = False):
+    """Parse positive numeric input from Persian/Arabic/English digits."""
+    normalized = normalize_numbers((value or "").strip()).replace("٫", ".").replace(",", ".")
+    if allow_float:
+        number = float(normalized)
+    else:
+        number = int(normalized)
+    if number <= 0:
+        raise ValueError
+    return number
+
+
+def format_gb_value(value) -> str:
+    """Render traffic in GB without trailing .0 for integer values."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:g}"
+
+
 def gregorian_to_jalali(g_date: datetime):
     gy = g_date.year - 1600
     gm = g_date.month - 1
@@ -517,6 +540,11 @@ async def handle_admin_input(message: Message):
                                 wg_result.get("qr_code"),
                                 f"QR Code - {days}روز / {traffic}گیگ"
                             )
+                            await message.answer(
+                                f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                                f"📦 پلن انتخابی: {account_name}",
+                                parse_mode="HTML"
+                            )
                     else:
                         await message.answer(
                             f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}",
@@ -539,24 +567,30 @@ async def handle_admin_input(message: Message):
 
         if state.get("action") == "test_account_setup":
             step = state.get("step")
-            text = normalize_numbers(text)
             try:
-                value = int(text)
-                if value <= 0:
-                    raise ValueError
+                value = parse_positive_number(text, allow_float=(step == "traffic"))
             except ValueError:
-                await message.answer("❌ لطفاً یک عدد صحیح بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
+                if step == "traffic":
+                    await message.answer(
+                        "❌ لطفاً حجم را به‌صورت عدد بزرگ‌تر از صفر وارد کنید (مثلاً <code>1</code> یا <code>0.5</code>).",
+                        parse_mode="HTML"
+                    )
+                else:
+                    await message.answer("❌ لطفاً یک عدد صحیح بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
                 return
 
             if step == "days":
-                state["days"] = value
+                state["days"] = int(value)
                 state["step"] = "traffic"
-                await message.answer("🌐 لطفاً حجم اکانت تست را به گیگ وارد کنید:", parse_mode="HTML")
+                await message.answer(
+                    "🌐 لطفاً حجم اکانت تست را به گیگ وارد کنید (مثلاً <code>1</code> یا <code>0.5</code>):",
+                    parse_mode="HTML"
+                )
                 return
 
             if step == "traffic":
                 days = state.get("days")
-                traffic = value
+                traffic = float(value)
                 db = SessionLocal()
                 try:
                     test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
@@ -581,7 +615,7 @@ async def handle_admin_input(message: Message):
 
                     db.commit()
                     await message.answer(
-                        f"✅ اکانت تست با موفقیت {action_text}.\n\n• مدت: {days} روز\n• حجم: {traffic} گیگ",
+                        f"✅ اکانت تست با موفقیت {action_text}.\n\n• مدت: {days} روز\n• حجم: {format_gb_value(traffic)} گیگ",
                         parse_mode="HTML"
                     )
                     all_plans = db.query(Plan).all()
@@ -614,18 +648,38 @@ async def handle_admin_input(message: Message):
             next_step = next_steps.get(step)
             if next_step:
                 state["step"] = next_step
-                await message.answer(
-                    get_plan_creation_summary(state["data"]),
-                    parse_mode="HTML"
-                )
                 await message.answer(get_plan_field_prompt(next_step), parse_mode="HTML")
             else:
                 state.pop("step", None)
-                await message.answer(
-                    get_plan_creation_summary(state["data"]),
-                    reply_markup=get_plan_edit_keyboard(plan_id=None),
-                    parse_mode="HTML"
-                )
+                if state.get("action") == "create" and state.get("plan_id") == "new":
+                    db = SessionLocal()
+                    try:
+                        plan_data = state.get("data", {})
+                        plan = Plan(
+                            name=plan_data["name"],
+                            duration_days=int(plan_data["days"]),
+                            traffic_gb=int(plan_data["traffic"]),
+                            price=int(plan_data["price"]),
+                            description=plan_data.get("description", "")
+                        )
+                        db.add(plan)
+                        db.commit()
+
+                        await message.answer(
+                            f"✅ پلن «{plan.name}» با موفقیت ایجاد شد.\n\n" + get_plan_creation_summary(state["data"]),
+                            parse_mode="HTML"
+                        )
+                        all_plans = db.query(Plan).all()
+                        await message.answer(PLANS_MESSAGE, reply_markup=get_plans_keyboard(all_plans), parse_mode="HTML")
+                    finally:
+                        db.close()
+                        admin_plan_state.pop(user_id, None)
+                else:
+                    await message.answer(
+                        get_plan_creation_summary(state["data"]),
+                        reply_markup=get_plan_edit_keyboard(plan_id=None),
+                        parse_mode="HTML"
+                    )
             return
         
         if field:
@@ -796,6 +850,11 @@ async def callback_handler(callback: CallbackQuery, bot):
                     callback.message,
                     wg_result.get("qr_code"),
                     caption="📷 QR Code اکانت تست",
+                )
+                await callback.message.answer(
+                    f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                    f"📦 پلن انتخابی: {plan.name}",
+                    parse_mode="HTML"
                 )
         finally:
             db.close()
@@ -1351,7 +1410,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                         wg_client_dns=WG_CLIENT_DNS,
                         user_telegram_id=str(user_id),
                         plan_id=plan.id,
-                        plan_name=f"wg-{user_id}",
+                        plan_name=plan.name,
                         duration_days=plan.duration_days
                     )
                     
@@ -1379,6 +1438,11 @@ async def callback_handler(callback: CallbackQuery, bot):
                                 callback.message,
                                 wg_result.get("qr_code"),
                                 f"QR Code - {plan.name}"
+                            )
+                            await callback.message.answer(
+                                f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                                f"📦 پلن انتخابی: {plan.name}",
+                                parse_mode="HTML"
                             )
                     else:
                         await callback.message.answer(
@@ -1746,8 +1810,16 @@ async def callback_handler(callback: CallbackQuery, bot):
                                     await send_qr_code(
                                         callback.message.bot,
                                         wg_result.get("qr_code"),
-                                        f"📋 اطلاعات پلن:\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n\n➕ این تصویر را در نرم‌افزار WireGuard اضافه کنید",
+                                        "📷 QR Code WireGuard\n\n➕ این تصویر را در نرم‌افزار WireGuard اضافه کنید",
                                         chat_id=user_tg_id
+                                    )
+                                    await callback.message.bot.send_message(
+                                        chat_id=user_tg_id,
+                                        text=(
+                                            f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                                            f"📦 پلن انتخابی: {receipt.plan_name}"
+                                        ),
+                                        parse_mode="HTML"
                                     )
                                 except Exception as e:
                                     print(f"Error sending QR code to user: {e}")
