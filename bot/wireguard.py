@@ -4,6 +4,7 @@ WireGuard account creation on MikroTik using MikroTik API
 import os
 import sys
 import logging
+import ipaddress
 from io import BytesIO
 import base64
 from datetime import datetime, timedelta
@@ -422,9 +423,7 @@ def get_next_available_ip_from_db(network_base: str) -> str:
     """
     logger.info(f"[Step 2] Getting next available IP from database, network: {network_base}...")
     
-    # Parse network base (e.g., "192.168.30.0" -> "192.168.30.")
-    base_parts = network_base.rsplit('.', 1)
-    prefix = base_parts[0] + "."
+    prefix, range_start, range_end = parse_ip_pool(network_base)
     
     db = SessionLocal()
     try:
@@ -436,17 +435,17 @@ def get_next_available_ip_from_db(network_base: str) -> str:
         for config in configs:
             if config.client_ip:
                 ip = config.client_ip
-                if ip.count('.') == 3:  # IPv4
+                if ip.startswith(prefix) and ip.count('.') == 3:
                     try:
                         last_octet = int(ip.rsplit('.', 1)[-1])
-                        used_ips.add(last_octet)
+                        if range_start <= last_octet <= range_end:
+                            used_ips.add(last_octet)
                     except (ValueError, IndexError):
                         pass
         
         logger.info(f"[Step 2] Used IPs in database: {sorted(used_ips)}")
         
-        # Find next available IP in range 10-250
-        for i in range(10, 251):
+        for i in range(range_start, range_end + 1):
             if i not in used_ips:
                 ip = f"{prefix}{i}"
                 logger.info(f"[Step 2] ✓ Selected available IP: {ip}")
@@ -460,6 +459,55 @@ def get_next_available_ip_from_db(network_base: str) -> str:
         raise
     finally:
         db.close()
+
+
+def parse_ip_pool(network_base: str) -> tuple[str, int, int]:
+    """
+    Parse client IP pool and return (prefix, start, end).
+
+    Supported formats:
+      - x.y.z.0/24
+      - x.y.z.10-x.y.z.200
+      - x.y.z.0 (legacy)
+    """
+    raw = (network_base or "").strip()
+    if not raw:
+        raise ValueError("IP pool is empty")
+
+    if "-" in raw:
+        left, right = [part.strip() for part in raw.split("-", 1)]
+        start_ip = ipaddress.ip_address(left)
+        end_ip = ipaddress.ip_address(right)
+        if start_ip.version != 4 or end_ip.version != 4:
+            raise ValueError("Only IPv4 range is supported")
+
+        start_parts = left.split(".")
+        end_parts = right.split(".")
+        if start_parts[:3] != end_parts[:3]:
+            raise ValueError("IP range must stay in same /24")
+
+        start_octet = int(start_parts[3])
+        end_octet = int(end_parts[3])
+        if start_octet > end_octet:
+            raise ValueError("Start IP must be less than or equal to end IP")
+
+        prefix = ".".join(start_parts[:3]) + "."
+        return prefix, start_octet, end_octet
+
+    if "/" in raw:
+        network = ipaddress.ip_network(raw, strict=True)
+        if network.version != 4 or network.prefixlen != 24:
+            raise ValueError("Only IPv4 /24 CIDR is supported")
+        parts = str(network.network_address).split(".")
+        prefix = ".".join(parts[:3]) + "."
+        return prefix, 10, 250
+
+    ip = ipaddress.ip_address(raw)
+    if ip.version != 4:
+        raise ValueError("Only IPv4 format is supported")
+    parts = raw.split(".")
+    prefix = ".".join(parts[:3]) + "."
+    return prefix, 10, 250
 
 
 def save_wireguard_config_to_db(

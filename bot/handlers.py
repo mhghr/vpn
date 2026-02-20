@@ -30,7 +30,8 @@ from keyboards import (
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
     get_admin_user_configs_keyboard, get_test_account_keyboard, get_service_types_keyboard,
     get_servers_service_type_keyboard, get_servers_keyboard, get_server_action_keyboard,
-    get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard
+    get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard,
+    get_state_controls_keyboard
 )
 
 from texts import (
@@ -199,6 +200,40 @@ def parse_positive_number(value: str, allow_float: bool = False):
     if number <= 0:
         raise ValueError
     return number
+
+
+SERVER_CREATION_STEPS = [
+    "name", "host", "api_port", "username", "password", "wg_interface",
+    "wg_server_public_key", "wg_server_endpoint", "wg_server_port",
+    "wg_client_network_base", "wg_client_dns", "capacity"
+]
+
+
+def validate_ip_pool_format(value: str) -> tuple[bool, str]:
+    try:
+        import wireguard
+        wireguard.parse_ip_pool(normalize_numbers(value))
+        return True, ""
+    except Exception:
+        return False, "فرمت رنج IP نامعتبر است. یکی از این فرمت‌ها را وارد کنید\n• x.y.z.0/24\n• x.y.z.10-x.y.z.200"
+
+
+def get_server_step_prompt(step: str) -> str:
+    prompts = {
+        "name": "نام سرور را وارد کنید:",
+        "host": "IP/Host سرور را وارد کنید:",
+        "api_port": "پورت API (مثلاً 8728 یا 22):",
+        "username": "یوزرنیم API:",
+        "password": "پسورد API:",
+        "wg_interface": "نام اینترفیس وایرگارد:",
+        "wg_server_public_key": "Public Key سرور:",
+        "wg_server_endpoint": "Endpoint سرور:",
+        "wg_server_port": "پورت وایرگارد:",
+        "wg_client_network_base": "رنج IP (x.y.z.0/24 یا x.y.z.10-x.y.z.200):",
+        "wg_client_dns": "DNS (مثلاً 8.8.8.8,1.0.0.1):",
+        "capacity": "ظرفیت سرور (تعداد اکانت):",
+    }
+    return prompts.get(step, "لطفاً مقدار را وارد کنید:")
 
 
 def format_gb_value(value) -> str:
@@ -544,27 +579,27 @@ async def handle_admin_input(message: Message):
                 admin_server_state.pop(user_id, None)
             return
 
-        steps = ["name", "host", "api_port", "username", "password", "wg_interface", "wg_server_public_key", "wg_server_endpoint", "wg_server_port", "wg_client_network_base", "wg_client_dns", "capacity"]
         current = state.get("step")
-        if current in steps:
-            state[current] = text.strip()
-            idx = steps.index(current)
-            if idx < len(steps) - 1:
-                state["step"] = steps[idx + 1]
-                prompts = {
-                    "host": "IP/Host سرور را وارد کنید:",
-                    "api_port": "پورت API (مثلاً 8728 یا 22):",
-                    "username": "یوزرنیم API:",
-                    "password": "پسورد API:",
-                    "wg_interface": "نام اینترفیس وایرگارد:",
-                    "wg_server_public_key": "Public Key سرور:",
-                    "wg_server_endpoint": "Endpoint سرور:",
-                    "wg_server_port": "پورت وایرگارد:",
-                    "wg_client_network_base": "رنج IP (مثلاً 192.168.30.0):",
-                    "wg_client_dns": "DNS (مثلاً 8.8.8.8,1.0.0.1):",
-                    "capacity": "ظرفیت سرور (تعداد اکانت):"
-                }
-                await message.answer(prompts[steps[idx + 1]], parse_mode="HTML")
+        if current in SERVER_CREATION_STEPS:
+            value = text.strip()
+            if current == "wg_client_network_base":
+                ok, err = validate_ip_pool_format(value)
+                if not ok:
+                    await message.answer(
+                        f"❌ {err}",
+                        reply_markup=get_state_controls_keyboard(back_callback="server_input_back", cancel_callback="server_input_cancel"),
+                        parse_mode="HTML",
+                    )
+                    return
+            state[current] = value
+            idx = SERVER_CREATION_STEPS.index(current)
+            if idx < len(SERVER_CREATION_STEPS) - 1:
+                state["step"] = SERVER_CREATION_STEPS[idx + 1]
+                await message.answer(
+                    get_server_step_prompt(SERVER_CREATION_STEPS[idx + 1]),
+                    reply_markup=get_state_controls_keyboard(back_callback="server_input_back", cancel_callback="server_input_cancel"),
+                    parse_mode="HTML",
+                )
                 return
 
             db = SessionLocal()
@@ -1570,7 +1605,11 @@ async def callback_handler(callback: CallbackQuery, bot):
     elif data.startswith("server_add_"):
         service_type_id = int(data.split("_")[-1])
         admin_server_state[user_id] = {"step": "name", "service_type_id": service_type_id}
-        await callback.message.answer("نام سرور را وارد کنید:", parse_mode="HTML")
+        await callback.message.answer(
+            get_server_step_prompt("name"),
+            reply_markup=get_state_controls_keyboard(back_callback="server_input_back", cancel_callback="server_input_cancel"),
+            parse_mode="HTML"
+        )
 
     elif data.startswith("server_view_"):
         server_id = int(data.split("_")[-1])
@@ -1596,7 +1635,11 @@ async def callback_handler(callback: CallbackQuery, bot):
     elif data.startswith("server_edit_"):
         server_id = int(data.split("_")[-1])
         admin_server_state[user_id] = {"step": "edit_capacity", "server_id": server_id}
-        await callback.message.answer("ظرفیت جدید سرور را وارد کنید:", parse_mode="HTML")
+        await callback.message.answer(
+            "ظرفیت جدید سرور را وارد کنید:",
+            reply_markup=get_state_controls_keyboard(cancel_callback="server_input_cancel"),
+            parse_mode="HTML"
+        )
 
     elif data.startswith("server_delete_"):
         server_id = int(data.split("_")[-1])
@@ -1612,6 +1655,42 @@ async def callback_handler(callback: CallbackQuery, bot):
             await callback.message.answer("✅ سرور حذف شد.", parse_mode="HTML")
         finally:
             db.close()
+
+    elif data == "server_input_back":
+        state = admin_server_state.get(user_id)
+        if not state:
+            await callback.answer("مرحله فعالی وجود ندارد", show_alert=True)
+            return
+        current = state.get("step")
+        if current not in SERVER_CREATION_STEPS:
+            await callback.answer("بازگشت برای این مرحله فعال نیست", show_alert=True)
+            return
+        idx = SERVER_CREATION_STEPS.index(current)
+        if idx == 0:
+            await callback.answer("شما در اولین مرحله هستید")
+            return
+        previous_step = SERVER_CREATION_STEPS[idx - 1]
+        state["step"] = previous_step
+        await callback.message.answer(
+            get_server_step_prompt(previous_step),
+            reply_markup=get_state_controls_keyboard(back_callback="server_input_back", cancel_callback="server_input_cancel"),
+            parse_mode="HTML"
+        )
+
+    elif data == "server_input_cancel":
+        state = admin_server_state.pop(user_id, None)
+        if state and state.get("service_type_id"):
+            service_type_id = state.get("service_type_id")
+            db = SessionLocal()
+            try:
+                servers = db.query(Server).filter(Server.service_type_id == service_type_id).all()
+                await callback.message.answer("✅ عملیات افزودن/ویرایش سرور لغو شد.", parse_mode="HTML")
+                await callback.message.answer("📋 لیست سرورها:", reply_markup=get_servers_keyboard(servers, service_type_id), parse_mode="HTML")
+            finally:
+                db.close()
+        else:
+            await callback.message.answer("✅ عملیات لغو شد.", parse_mode="HTML")
+            await callback.message.answer("🖧 مدیریت سرورها", parse_mode="HTML")
 
     elif data == "admin_plans":
         db = SessionLocal()
