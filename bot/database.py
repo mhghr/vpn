@@ -97,6 +97,9 @@ def init_db():
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_server_port INTEGER"))
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_client_network_base VARCHAR"))
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_client_dns VARCHAR"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_ip_range_start INTEGER"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_ip_range_end INTEGER"))
+        conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS wg_is_ip_range BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS capacity INTEGER DEFAULT 100"))
         conn.execute(text("ALTER TABLE servers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"))
 
