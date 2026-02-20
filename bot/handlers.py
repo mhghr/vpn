@@ -155,6 +155,56 @@ def format_traffic(total_bytes: int) -> str:
     return f"{gb:.2f} GB"
 
 
+def calculate_org_user_financials(db, user_obj: User):
+    active_configs = db.query(WireGuardConfig).filter(
+        WireGuardConfig.user_telegram_id == user_obj.telegram_id,
+        WireGuardConfig.status == "active"
+    ).all()
+    total_traffic_bytes = sum((cfg.cumulative_rx_bytes or 0) + (cfg.cumulative_tx_bytes or 0) for cfg in active_configs)
+    total_traffic_gb = total_traffic_bytes / (1024 ** 3)
+    price_per_gb = user_obj.org_price_per_gb or 0
+    debt_amount = int(total_traffic_gb * price_per_gb)
+    last_settlement = format_jalali_date(user_obj.org_last_settlement_at) if user_obj.org_last_settlement_at else "ثبت نشده"
+    return {
+        "active_configs": active_configs,
+        "total_traffic_gb": total_traffic_gb,
+        "price_per_gb": price_per_gb,
+        "debt_amount": debt_amount,
+        "last_settlement": last_settlement,
+    }
+
+
+def build_admin_user_info_message(db, user_obj: User) -> str:
+    username = f"@{user_obj.username}" if user_obj.username else "ندارد"
+    joined_date = format_jalali_date(user_obj.joined_at) if user_obj.joined_at else "نامشخص"
+    all_configs_count = db.query(WireGuardConfig).filter(WireGuardConfig.user_telegram_id == user_obj.telegram_id).count()
+    enterprise_status = "✅ مشتری سازمانی" if user_obj.is_organization_customer else "❌ مشتری عادی"
+    blocked_status = "⛔ مسدود" if user_obj.is_blocked else "✅ فعال"
+    msg = (
+        f"👤 اطلاعات کاربر:\n\n"
+        f"شناسه: {user_obj.telegram_id}\n"
+        f"نام: {user_obj.first_name} {user_obj.last_name or ''}\n"
+        f"نام کاربری: {username}\n"
+        f"موجودی: {user_obj.wallet_balance:,} تومان\n"
+        f"تاریخ عضویت: {joined_date}\n"
+        f"وضعیت عضویت: {'✅ فعال' if user_obj.is_member else '❌ غیرفعال'}\n"
+        f"ادمین: {'✅ بله' if user_obj.is_admin else '❌ خیر'}\n"
+        f"وضعیت دسترسی: {blocked_status}\n"
+        f"نوع مشتری: {enterprise_status}\n"
+        f"تعداد لینک/کانفیگ‌ها: {all_configs_count}"
+    )
+    if user_obj.is_organization_customer:
+        fz = calculate_org_user_financials(db, user_obj)
+        msg += (
+            f"\n\n🏢 اطلاعات مالی مشتری سازمانی:\n"
+            f"• مجموع ترافیک لینک‌های فعال: {fz['total_traffic_gb']:.2f} GB\n"
+            f"• هزینه هر گیگ: {fz['price_per_gb']:,} تومان\n"
+            f"• مبلغ بدهکاری: {fz['debt_amount']:,} تومان\n"
+            f"• زمان آخرین تسویه: {fz['last_settlement']}"
+        )
+    return msg
+
+
 async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int = None):
     """
     Send QR code image from base64 string.
@@ -477,6 +527,9 @@ async def start_handler(message: Message, bot):
         is_member = await check_channel_member(bot, user_id, CHANNEL_ID)
         if is_member:
             db_user = get_or_create_user(db, str(user_id), user.username, user.first_name, user.last_name)
+            if db_user.is_blocked:
+                await message.answer("⛔ حساب شما توسط ادمین مسدود شده است.", parse_mode="HTML")
+                return
             was_member = db_user.is_member
             db_user.is_member = True
             db.commit()
@@ -1177,6 +1230,16 @@ async def callback_handler(callback: CallbackQuery, bot):
         if not is_admin(user_id):
             await callback.answer("❌ شما دسترسی مدیریت ندارید.", show_alert=True)
             return
+
+    if not is_admin(user_id):
+        db_guard = SessionLocal()
+        try:
+            current_user = get_user(db_guard, str(user_id))
+            if current_user and current_user.is_blocked:
+                await callback.answer("⛔ حساب شما مسدود است.", show_alert=True)
+                return
+        finally:
+            db_guard.close()
     
     # === USER CALLBACKS ===
     if data == "buy":
@@ -1380,13 +1443,27 @@ async def callback_handler(callback: CallbackQuery, bot):
                 f"• حجم ارسالی (TX): {format_traffic_size(config.cumulative_tx_bytes or 0)}\n"
                 f"• حجم باقی‌مانده: {format_traffic_size(remaining_bytes) if plan_traffic_bytes else 'نامحدود/نامشخص'}"
             )
+            owner_user = db.query(User).filter(User.telegram_id == config.user_telegram_id).first()
+            is_org_customer = bool(owner_user and owner_user.is_organization_customer)
+            financials = calculate_org_user_financials(db, owner_user) if owner_user and is_org_customer else None
             await callback.message.answer(
                 msg,
-                reply_markup=get_config_detail_keyboard(config.id, can_renew=can_renew),
+                reply_markup=get_config_detail_keyboard(
+                    config.id,
+                    can_renew=can_renew,
+                    is_org_customer=is_org_customer,
+                    total_traffic_text=(f"{financials['total_traffic_gb']:.2f} GB" if financials else "-"),
+                    price_per_gb_text=(f"{financials['price_per_gb']:,} تومان" if financials else "-"),
+                    debt_text=(f"{financials['debt_amount']:,} تومان" if financials else "-"),
+                    last_settlement_text=(financials['last_settlement'] if financials else "-"),
+                ),
                 parse_mode="HTML"
             )
         finally:
             db.close()
+
+    elif data.startswith("cfg_enterprise_ro_"):
+        await callback.answer("این بخش فقط جهت نمایش است و توسط ادمین مدیریت می‌شود.", show_alert=True)
 
     elif data.startswith("cfg_renew_unavailable_"):
         await callback.message.answer("ℹ️ گزینه تمدید زمانی فعال می‌شود که سرویس غیرفعال یا منقضی شده باشد.", parse_mode="HTML")
@@ -1453,31 +1530,23 @@ async def callback_handler(callback: CallbackQuery, bot):
         try:
             user = get_user(db, str(user_id))
             if user:
-                # Get user configs count
                 configs_count = db.query(WireGuardConfig).filter(
                     WireGuardConfig.user_telegram_id == str(user_id)
                 ).count()
-                
-                # Get active configs count
                 active_configs = db.query(WireGuardConfig).filter(
                     WireGuardConfig.user_telegram_id == str(user_id),
                     WireGuardConfig.status == "active"
                 ).count()
-                
-                # Format join date
                 joined_date = format_jalali_date(user.joined_at) if user.joined_at else "نامشخص"
-                
-                # Get member status
                 member_status = "✅ فعال" if user.is_member else "❌ غیرفعال"
-                
+
                 msg = (
                     f"👤 حساب کاربری\n\n"
                     f"👤 نام: {user.first_name}"
                 )
-                
                 if user.username:
                     msg += f"\n📛 نام کاربری: @{user.username}"
-                
+
                 msg += (
                     f"\n\n📊 اطلاعات اکانت:\n"
                     f"• 💰 موجودی کیف پول: {user.wallet_balance:,} تومان\n"
@@ -1486,13 +1555,23 @@ async def callback_handler(callback: CallbackQuery, bot):
                     f"• 📅 تاریخ عضویت: {joined_date}\n"
                     f"• 📌 وضعیت عضویت: {member_status}"
                 )
-                
+
+                if user.is_organization_customer:
+                    financials = calculate_org_user_financials(db, user)
+                    msg += (
+                        f"\n\n🏢 اطلاعات سازمانی (فقط خواندنی):\n"
+                        f"• 📊 مجموع ترافیک لینک‌های فعال: {financials['total_traffic_gb']:.2f} GB\n"
+                        f"• 💰 هزینه هر گیگ: {financials['price_per_gb']:,} تومان\n"
+                        f"• 🧾 مبلغ بدهکاری: {financials['debt_amount']:,} تومان\n"
+                        f"• 🕓 زمان آخرین تسویه: {financials['last_settlement']}"
+                    )
+
                 await callback.message.answer(msg, parse_mode="HTML")
             else:
                 await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
         finally:
             db.close()
-    
+
     # === ADMIN CALLBACKS ===
     elif data == "admin":
         pending_panel = load_pending_panel()
@@ -1654,7 +1733,16 @@ async def callback_handler(callback: CallbackQuery, bot):
         admin_user_search_state[user_id] = {"active": True}
         await callback.message.answer(SEARCH_USER_MESSAGE, parse_mode="HTML")
 
-    elif data.startswith("admin_user_"):
+    elif data.startswith("admin_user_") and not data.startswith((
+        "admin_user_configs_",
+        "admin_user_block_toggle_",
+        "admin_user_org_toggle_",
+        "admin_user_org_total_traffic_",
+        "admin_user_org_price_",
+        "admin_user_org_debt_",
+        "admin_user_org_last_settlement_",
+        "admin_user_org_settle_",
+    )):
         target_user_id = int(data.replace("admin_user_", ""))
         db = SessionLocal()
         try:
@@ -1662,10 +1750,138 @@ async def callback_handler(callback: CallbackQuery, bot):
             if not user_obj:
                 await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
                 return
-            username = f"@{user_obj.username}" if user_obj.username else "ندارد"
-            joined_date = format_jalali_date(user_obj.joined_at) if user_obj.joined_at else "نامشخص"
-            msg = f"👤 اطلاعات کاربر:\n\nشناسه: {user_obj.telegram_id}\nنام: {user_obj.first_name} {user_obj.last_name or ''}\nنام کاربری: {username}\nموجودی: {user_obj.wallet_balance} تومان\nتاریخ عضویت: {joined_date}\nوضعیت: {'✅ فعال' if user_obj.is_member else '❌ غیرفعال'}\nادمین: {'✅ بله' if user_obj.is_admin else '❌ خیر'}"
-            await callback.message.answer(msg, reply_markup=get_admin_user_manage_keyboard(user_obj.id), parse_mode="HTML")
+            msg = build_admin_user_info_message(db, user_obj)
+            await callback.message.answer(
+                msg,
+                reply_markup=get_admin_user_manage_keyboard(
+                    user_obj.id,
+                    is_org=user_obj.is_organization_customer,
+                    is_blocked=user_obj.is_blocked,
+                ),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_block_toggle_"):
+        target_user_id = int(data.replace("admin_user_block_toggle_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj:
+                await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
+                return
+            user_obj.is_blocked = not bool(user_obj.is_blocked)
+            db.commit()
+            state_text = "مسدود شد" if user_obj.is_blocked else "از مسدودی خارج شد"
+            await callback.message.answer(f"✅ کاربر با موفقیت {state_text}.", parse_mode="HTML")
+            await callback.message.answer(
+                build_admin_user_info_message(db, user_obj),
+                reply_markup=get_admin_user_manage_keyboard(user_obj.id, is_org=user_obj.is_organization_customer, is_blocked=user_obj.is_blocked),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_org_toggle_"):
+        target_user_id = int(data.replace("admin_user_org_toggle_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj:
+                await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
+                return
+            user_obj.is_organization_customer = not bool(user_obj.is_organization_customer)
+            if user_obj.org_price_per_gb is None:
+                user_obj.org_price_per_gb = 3000
+            db.commit()
+            state_text = "مشتری سازمانی" if user_obj.is_organization_customer else "مشتری عادی"
+            await callback.message.answer(f"✅ نوع مشتری با موفقیت به «{state_text}» تغییر کرد.", parse_mode="HTML")
+            await callback.message.answer(
+                build_admin_user_info_message(db, user_obj),
+                reply_markup=get_admin_user_manage_keyboard(user_obj.id, is_org=user_obj.is_organization_customer, is_blocked=user_obj.is_blocked),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_org_total_traffic_"):
+        target_user_id = int(data.replace("admin_user_org_total_traffic_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این کاربر مشتری سازمانی نیست.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, user_obj)
+            await callback.answer(f"مجموع ترافیک فعال: {financials['total_traffic_gb']:.2f} GB", show_alert=True)
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_org_price_"):
+        target_user_id = int(data.replace("admin_user_org_price_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این کاربر مشتری سازمانی نیست.", show_alert=True)
+                return
+            await callback.answer(f"هزینه هر گیگ: {(user_obj.org_price_per_gb or 0):,} تومان", show_alert=True)
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_org_debt_"):
+        target_user_id = int(data.replace("admin_user_org_debt_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این کاربر مشتری سازمانی نیست.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, user_obj)
+            await callback.answer(f"مبلغ بدهکاری: {financials['debt_amount']:,} تومان", show_alert=True)
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_org_last_settlement_"):
+        target_user_id = int(data.replace("admin_user_org_last_settlement_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این کاربر مشتری سازمانی نیست.", show_alert=True)
+                return
+            last_settlement = format_jalali_date(user_obj.org_last_settlement_at) if user_obj.org_last_settlement_at else "ثبت نشده"
+            await callback.answer(f"آخرین تسویه: {last_settlement}", show_alert=True)
+        finally:
+            db.close()
+
+    elif data.startswith("admin_user_org_settle_"):
+        target_user_id = int(data.replace("admin_user_org_settle_", ""))
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این کاربر مشتری سازمانی نیست.", show_alert=True)
+                return
+            active_configs = db.query(WireGuardConfig).filter(
+                WireGuardConfig.user_telegram_id == user_obj.telegram_id,
+                WireGuardConfig.status == "active"
+            ).all()
+            for cfg in active_configs:
+                cfg.cumulative_rx_bytes = 0
+                cfg.cumulative_tx_bytes = 0
+                cfg.last_rx_counter = 0
+                cfg.last_tx_counter = 0
+                cfg.counter_reset_flag = True
+            user_obj.org_last_settlement_at = datetime.utcnow()
+            db.commit()
+            await callback.message.answer("✅ تسویه حساب انجام شد و مصرف لینک‌های فعال صفر شد.", parse_mode="HTML")
+            await callback.message.answer(
+                build_admin_user_info_message(db, user_obj),
+                reply_markup=get_admin_user_manage_keyboard(user_obj.id, is_org=user_obj.is_organization_customer, is_blocked=user_obj.is_blocked),
+                parse_mode="HTML"
+            )
         finally:
             db.close()
 
