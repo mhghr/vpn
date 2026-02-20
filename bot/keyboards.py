@@ -1,32 +1,31 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
-        [KeyboardButton(text="🛒 خرید جدید"), KeyboardButton(text="📱 نرم‌افزارها")],
-        [KeyboardButton(text="🔗 کانفیگ‌های من"), KeyboardButton(text="📖 آموزش اتصال")],
-        [KeyboardButton(text="📚 آموزش"), KeyboardButton(text="💰 کیف پول")],
-        [KeyboardButton(text="🧪 اکانت تست")],
-        [KeyboardButton(text="👤 حساب کاربری")],
+        [InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
+        [InlineKeyboardButton(text="🔗 کانفیگ‌های من", callback_data="configs"), InlineKeyboardButton(text="📖 آموزش اتصال", callback_data="howto")],
+        [InlineKeyboardButton(text="📚 آموزش", callback_data="user_tutorials"), InlineKeyboardButton(text="💰 کیف پول", callback_data="wallet")],
+        [InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
+        [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile")],
     ]
     if is_admin_user:
-        buttons.append([KeyboardButton(text="⚙️ مدیریت")])
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+        buttons.append([InlineKeyboardButton(text="⚙️ مدیریت", callback_data="admin")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_admin_keyboard(pending_panel=None):
-    buttons = []
+    buttons = [
+        [InlineKeyboardButton(text="🖥️ پنل‌ها", callback_data="admin_panels"), InlineKeyboardButton(text="🔍 جستجو", callback_data="admin_search_user")],
+        [InlineKeyboardButton(text="📦 پلن ها", callback_data="admin_plans"), InlineKeyboardButton(text="💳 فیش‌های پرداخت", callback_data="admin_receipts")],
+        [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
+        [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
+        [InlineKeyboardButton(text="🤝 نمایندگی‌ها", callback_data="admin_representatives"), InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")],
+    ]
     if pending_panel:
-        buttons.append([KeyboardButton(text="🔔 درخواست پنل جدید")])
-    buttons.extend([
-        [KeyboardButton(text="🖥️ پنل‌ها"), KeyboardButton(text="🔍 جستجو")],
-        [KeyboardButton(text="📦 پلن ها"), KeyboardButton(text="💳 فیش‌های پرداخت")],
-        [KeyboardButton(text="🎁 کد تخفیف"), KeyboardButton(text="🧩 انواع سرویس")],
-        [KeyboardButton(text="🖧 مدیریت سرورها"), KeyboardButton(text="🔗 ساخت اکانت")],
-        [KeyboardButton(text="🤝 نمایندگی‌ها"), KeyboardButton(text="📚 آموزش ادمین")],
-        [KeyboardButton(text="🔙 بازگشت")],
-    ])
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+        buttons.insert(0, [InlineKeyboardButton(text=f"🔔 درخواست پنل جدید ({pending_panel.get('name', 'Unknown')})", callback_data="admin_pending_panel")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_panels_keyboard(pending_panel=None):
