@@ -65,18 +65,21 @@ apt-get install -y \
 echo "[2/8] Configuring PostgreSQL..."
 pushd /tmp >/dev/null
 sudo -u postgres psql -d postgres -v db_user="$DB_USER" -v db_pass="$DB_PASS" <<'SQL'
-DO
-$$
-BEGIN
-   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = :'db_user') THEN
-      EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_pass');
-   ELSE
-      EXECUTE format('ALTER ROLE %I WITH PASSWORD %L', :'db_user', :'db_pass');
-   END IF;
-END
-$$;
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_pass')
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :'db_user'
+)
+\gexec
+
+SELECT format('ALTER ROLE %I WITH PASSWORD %L', :'db_user', :'db_pass')
+WHERE EXISTS (
+  SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :'db_user'
+)
+\gexec
 SQL
-if ! sudo -u postgres psql -d postgres -v db_name="$DB_NAME" -tAc "SELECT 1 FROM pg_database WHERE datname = :'db_name'" | grep -q 1; then
+if ! sudo -u postgres psql -d postgres -v db_name="$DB_NAME" <<'SQL' | grep -q 1; then
+SELECT 1 FROM pg_database WHERE datname = :'db_name';
+SQL
   sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
 fi
 popd >/dev/null
