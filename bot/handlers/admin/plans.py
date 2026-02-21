@@ -189,6 +189,11 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                         "server_ids": selected_server_ids,
                     },
                 }
+                service_type_name = db.query(ServiceType).filter(ServiceType.id == plan.service_type_id).first()
+                service_text = service_type_name.name if service_type_name else "-"
+                mapped_servers = db.query(Server).join(PlanServerMap, PlanServerMap.server_id == Server.id).filter(PlanServerMap.plan_id == plan.id).all()
+                has_server_mapping = bool(mapped_servers)
+                server_text = mapped_servers[0].name if has_server_mapping else "بدون سرور"
                 await callback.message.answer(
                     "📦 مدیریت پلن\n\nروی هر پارامتر بزنید تا در صورت نیاز مقدار جدید وارد کنید.",
                     reply_markup=get_plan_action_keyboard(
@@ -199,6 +204,9 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                         price_text=f"{plan.price:,}",
                         description_text=(plan.description or "ندارد")[:40],
                         is_active=bool(plan.is_active),
+                        service_text=service_text,
+                        server_text=server_text,
+                        has_server_mapping=has_server_mapping,
                     ),
                     parse_mode="HTML",
                 )
@@ -232,6 +240,11 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                 db.commit()
                 status_text = "فعال" if plan.is_active else "غیرفعال"
                 await callback.message.answer(f"✅ پلن «{plan.name}» {status_text} شد.", parse_mode="HTML")
+                service_type_name = db.query(ServiceType).filter(ServiceType.id == plan.service_type_id).first()
+                service_text = service_type_name.name if service_type_name else "-"
+                mapped_servers = db.query(Server).join(PlanServerMap, PlanServerMap.server_id == Server.id).filter(PlanServerMap.plan_id == plan.id).all()
+                has_server_mapping = bool(mapped_servers)
+                server_text = mapped_servers[0].name if has_server_mapping else "بدون سرور"
                 await callback.message.answer(
                     "📦 مدیریت پلن\n\nروی هر پارامتر بزنید تا در صورت نیاز مقدار جدید وارد کنید.",
                     reply_markup=get_plan_action_keyboard(
@@ -242,6 +255,9 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                         price_text=f"{plan.price:,}",
                         description_text=(plan.description or "ندارد")[:40],
                         is_active=bool(plan.is_active),
+                        service_text=service_text,
+                        server_text=server_text,
+                        has_server_mapping=has_server_mapping,
                     ),
                     parse_mode="HTML",
                 )
@@ -386,7 +402,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                 plan = Plan(
                     name=plan_data["name"],
                     duration_days=int(days),
-                    traffic_gb=int(traffic),
+                    traffic_gb=float(traffic),
                     price=int(price),
                     description=plan_data.get("description", ""),
                     is_active=True,
@@ -404,7 +420,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                     return
                 plan.name = plan_data["name"]
                 plan.duration_days = int(days)
-                plan.traffic_gb = int(traffic)
+                plan.traffic_gb = float(traffic)
                 plan.price = int(price)
                 plan.description = plan_data.get("description", "")
                 plan.service_type_id = int(plan_data.get("service_type_id") or 0) or plan.service_type_id
@@ -429,31 +445,16 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
 
     elif data.startswith("plan_back_service_select_"):
         plan_id = data.split("_")[-1]
-        st = admin_plan_state.get(user_id, {"data": {}})
-        service_type_id = st.get("data", {}).get("service_type_id")
-        if not service_type_id and plan_id.isdigit():
-            db = SessionLocal()
-            try:
-                existing_plan = db.query(Plan).filter(Plan.id == int(plan_id)).first()
-                service_type_id = existing_plan.service_type_id if existing_plan else None
-            finally:
-                db.close()
-        if not service_type_id:
-            await callback.message.answer("❌ ابتدا نوع سرویس را انتخاب کنید.", parse_mode="HTML")
-            return
         db = SessionLocal()
         try:
-            servers = db.query(Server).filter(Server.service_type_id == service_type_id, Server.is_active == True).all()
-            if not servers:
-                await callback.message.answer(
-                    "❌ سروری اضافه نشده است. ابتدا سرور را اضافه کنید و سپس پلن را ایجاد کنید.",
-                    parse_mode="HTML"
-                )
+            service_types = db.query(ServiceType).filter(ServiceType.is_active == True).all()
+            if not service_types:
+                await callback.message.answer("❌ هیچ نوع سرویس فعالی یافت نشد.", parse_mode="HTML")
                 return
             await callback.message.answer(
-                "سرور/سرورهای پلن را انتخاب کنید. با انتخاب سرور، پلن فوراً ذخیره می‌شود.",
-                reply_markup=get_plan_servers_picker_keyboard(servers, plan_id),
-                parse_mode="HTML"
+                "نوع سرویس پلن را انتخاب کنید:",
+                reply_markup=get_service_type_picker_keyboard(service_types, f"plan_pick_service_{plan_id}_"),
+                parse_mode="HTML",
             )
         finally:
             db.close()
@@ -473,7 +474,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         price = normalize_numbers(plan_data.get("price", "0"))
         db = SessionLocal()
         try:
-            plan = Plan(name=plan_data["name"], duration_days=int(days), traffic_gb=int(traffic),
+            plan = Plan(name=plan_data["name"], duration_days=int(days), traffic_gb=float(traffic),
                        price=int(price), description=plan_data.get("description", ""), is_active=True,
                        service_type_id=int(plan_data.get("service_type_id")))
             db.add(plan)
@@ -513,7 +514,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
             if plan:
                 plan.name = plan_data["name"]
                 plan.duration_days = int(days)
-                plan.traffic_gb = int(traffic)
+                plan.traffic_gb = float(traffic)
                 plan.price = int(price)
                 plan.description = plan_data.get("description", "")
                 plan.service_type_id = int(plan_data.get("service_type_id") or 0) or plan.service_type_id
