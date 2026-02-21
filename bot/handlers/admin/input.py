@@ -8,12 +8,22 @@ async def handle_admin_input(message: Message):
     
     if user_id in admin_card_state:
         state = admin_card_state[user_id]
-        if state.get("step") == "card_number":
+        step = state.get("step")
+        if step == "card_number":
             card_number = normalize_numbers(text).replace(" ", "")
-            set_card_info(card_number, "")
+            _old_number, old_holder = get_card_info()
+            set_card_info(card_number, old_holder)
             del admin_card_state[user_id]
-            await message.answer("✅ شماره کارت با موفقیت ذخیره شد.", parse_mode="HTML")
-            await message.answer("💳 مدیریت شماره کارت", reply_markup=get_admin_card_keyboard(card_number), parse_mode="HTML")
+            await message.answer("✅ شماره کارت به‌روزرسانی شد.", parse_mode="HTML")
+            await message.answer("💳 مدیریت اطلاعات کارت", reply_markup=get_admin_card_keyboard(card_number, old_holder), parse_mode="HTML")
+            return
+        if step == "card_holder":
+            holder_name = text.strip()
+            old_number, _old_holder = get_card_info()
+            set_card_info(old_number, holder_name)
+            del admin_card_state[user_id]
+            await message.answer("✅ نام صاحب حساب به‌روزرسانی شد.", parse_mode="HTML")
+            await message.answer("💳 مدیریت اطلاعات کارت", reply_markup=get_admin_card_keyboard(old_number, holder_name), parse_mode="HTML")
             return
 
     # Handle wallet adjust flow
@@ -288,9 +298,22 @@ async def handle_admin_input(message: Message):
                     return
                 field = state.get("field")
                 value = text.strip()
-                if field in {"api_port", "wg_server_port", "capacity"}:
-                    value = int(normalize_numbers(value) or 0)
-                setattr(srv, field, value)
+                if field == "wg_client_network_base":
+                    parsed = parse_ip_range(value)
+                    if not parsed:
+                        await message.answer(
+                            "❌ فرمت رنج IP نامعتبر است.\n• CIDR: 192.168.30.0/24\n• رنج: 192.168.30.10-192.168.30.220\n• در حالت رنج فقط بازه 10 تا 250 مجاز است.",
+                            parse_mode="HTML",
+                        )
+                        return
+                    srv.wg_client_network_base = parsed["base_ip"]
+                    srv.wg_ip_range_start = parsed.get("start_last", 1)
+                    srv.wg_ip_range_end = parsed.get("end_last", 254)
+                    srv.wg_is_ip_range = parsed.get("is_range", False)
+                else:
+                    if field in {"api_port", "wg_server_port", "capacity"}:
+                        value = int(normalize_numbers(value) or 0)
+                    setattr(srv, field, value)
                 db.commit()
                 statuses = evaluate_server_parameters(srv)
                 await message.answer("✅ پارامتر سرور ویرایش شد.", parse_mode="HTML")
@@ -313,7 +336,7 @@ async def handle_admin_input(message: Message):
                 if not parsed:
                     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                     await message.answer(
-                        "❌ فرمت رنج IP نامعتبر است.\n• CIDR: 192.168.30.0/24\n• رنج: 192.168.30.10-192.168.30.220",
+                        "❌ فرمت رنج IP نامعتبر است.\n• CIDR: 192.168.30.0/24\n• رنج: 192.168.30.10-192.168.30.220\n• در حالت رنج فقط بازه 10 تا 250 مجاز است.",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                             [InlineKeyboardButton(text="❌ انصراف", callback_data="server_add_cancel")]
                         ]),

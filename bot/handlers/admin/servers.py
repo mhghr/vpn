@@ -71,6 +71,8 @@ async def handle_server_management_callbacks(callback: CallbackQuery, bot, data:
             "wg_interface": "اینترفیس جدید را وارد کنید:",
             "wg_server_endpoint": "Endpoint جدید را وارد کنید:",
             "wg_server_port": "پورت WireGuard جدید را وارد کنید:",
+            "wg_client_network_base": "رنج IP کاربران را وارد کنید:\n• فرمت CIDR: 192.168.30.0/24\n• فرمت رنج: 192.168.30.10-192.168.30.220",
+            "wg_client_dns": "DNS جدید را وارد کنید:",
             "capacity": "ظرفیت جدید را وارد کنید:",
         }
         prompt = prompts.get(field)

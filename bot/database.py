@@ -89,6 +89,7 @@ def init_db():
 
         # Payment receipt columns
         conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS server_id INTEGER"))
+        conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS renew_config_id INTEGER"))
         conn.execute(text("ALTER TABLE payment_receipts ADD COLUMN IF NOT EXISTS representative_id INTEGER"))
 
         # Representative columns

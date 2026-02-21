@@ -23,16 +23,10 @@ def check_server_connection(server) -> tuple[bool, str]:
 
 
 def evaluate_server_parameters(server) -> dict:
-    """Validate checkable server parameters and return per-field status.
-
-    Status values are True/False/None where None means "not checkable".
-    """
+    """Check only host reachability and WG interface existence for server health."""
     result = {
-        "host": None,
-        "api_port": None,
-        "username": None,
-        "password": None,
-        "wg_interface": None,
+        "host": False,
+        "wg_interface": False,
     }
 
     host = (server.host or "").strip()
@@ -41,56 +35,35 @@ def evaluate_server_parameters(server) -> dict:
     password = (server.password or "").strip()
     wg_interface = (server.wg_interface or "").strip()
 
-    # Stage 1: network reachability for host/port
-    can_reach = False
-    if host and isinstance(api_port, int) and 1 <= api_port <= 65535:
-        try:
-            with socket.create_connection((host, api_port), timeout=4):
-                can_reach = True
-        except Exception:
-            can_reach = False
+    if not (host and isinstance(api_port, int) and 1 <= api_port <= 65535 and username and password and wg_interface):
+        result["all_ok"] = False
+        return result
 
-    result["host"] = can_reach
-    result["api_port"] = can_reach
-
-    # Stage 2: API auth check for username/password
-    api = None
     pool = None
-    auth_ok = False
-    if can_reach and username and password:
-        try:
-            pool = RouterOsApiPool(
-                host,
-                username=username,
-                password=password,
-                port=api_port,
-                plaintext_login=True,
-            )
-            api = pool.get_api()
-            api.get_resource('/system/resource').get()
-            auth_ok = True
-        except Exception:
-            auth_ok = False
-
-    result["username"] = auth_ok
-    result["password"] = auth_ok
-
-    # Stage 3: interface existence check
-    if auth_ok and wg_interface:
-        try:
-            interface_rows = api.get_resource('/interface').get(name=wg_interface)
-            result["wg_interface"] = bool(interface_rows)
-        except Exception:
-            result["wg_interface"] = False
-    elif wg_interface:
-        result["wg_interface"] = False
-
-    if pool:
-        try:
-            pool.disconnect()
-        except Exception:
+    try:
+        with socket.create_connection((host, api_port), timeout=2):
             pass
+        result["host"] = True
 
-    checkable_values = [value for value in result.values() if value is not None]
-    result["all_ok"] = bool(checkable_values) and all(checkable_values)
+        pool = RouterOsApiPool(
+            host,
+            username=username,
+            password=password,
+            port=api_port,
+            plaintext_login=True,
+        )
+        api = pool.get_api()
+        interface_rows = api.get_resource('/interface').get(name=wg_interface)
+        result["wg_interface"] = bool(interface_rows)
+    except Exception:
+        result["host"] = False
+        result["wg_interface"] = False
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+
+    result["all_ok"] = bool(result["host"] and result["wg_interface"])
     return result

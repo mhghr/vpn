@@ -121,8 +121,8 @@ def build_peer_comment(user_telegram_id: str, client_ip: str, legacy: bool = Fal
         last_octet = client_ip.rsplit('.', 1)[-1] if client_ip and '.' in client_ip else client_ip
         return f"{user_telegram_id}-{last_octet}" if last_octet else str(user_telegram_id)
 
-    # Requested format: 3020-<user_id> for client IP like 192.168.30.20
-    return f"{ip_suffix}-{user_telegram_id}" if ip_suffix else str(user_telegram_id)
+    # Requested format: <user_id>-3020 for client IP like 192.168.30.20
+    return f"{user_telegram_id}-{ip_suffix}" if ip_suffix else str(user_telegram_id)
 
 
 def _safe_int(value) -> int:
@@ -504,7 +504,7 @@ def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None,
         for config in configs:
             if config.client_ip:
                 ip = config.client_ip
-                if ip.count('.') == 3:  # IPv4
+                if ip.count('.') == 3 and ip.startswith(prefix):  # IPv4 in the same network prefix
                     try:
                         last_octet = int(ip.rsplit('.', 1)[-1])
                         used_ips.add(last_octet)

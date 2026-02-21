@@ -87,15 +87,18 @@ def get_test_account_keyboard(days_text: str = "-", traffic_text: str = "-", is_
     ])
 
 
-def get_plan_action_keyboard(plan_id: int, plan_name: str, days_text: str, traffic_text: str, price_text: str, description_text: str, is_active: bool = True):
-    status_text = "✅ فعال" if is_active else "❌ غیرفعال"
+def get_plan_action_keyboard(plan_id: int, plan_name: str, days_text: str, traffic_text: str, price_text: str, description_text: str, is_active: bool = True, service_text: str = "-", server_text: str = "بدون سرور", has_server_mapping: bool = True):
+    if not has_server_mapping:
+        status_text = "🟠 غیرفعال (بدون سرور)"
+    else:
+        status_text = "✅ فعال" if is_active else "❌ غیرفعال"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"📝 نام پلن: {plan_name}", callback_data=f"plan_set_name_{plan_id}")],
         [InlineKeyboardButton(text=f"⏰ مدت زمان: {days_text} روز", callback_data=f"plan_set_days_{plan_id}")],
         [InlineKeyboardButton(text=f"🌐 حجم ترافیک: {traffic_text} گیگ", callback_data=f"plan_set_traffic_{plan_id}")],
         [InlineKeyboardButton(text=f"💰 قیمت: {price_text} تومان", callback_data=f"plan_set_price_{plan_id}")],
         [InlineKeyboardButton(text=f"📄 توضیحات: {description_text}", callback_data=f"plan_set_desc_{plan_id}")],
-        [InlineKeyboardButton(text="🧩 نوع سرویس", callback_data=f"plan_set_service_{plan_id}"), InlineKeyboardButton(text="🖧 سرورها", callback_data=f"plan_set_servers_{plan_id}")],
+        [InlineKeyboardButton(text=f"🧩 سرویس: {service_text}", callback_data=f"plan_set_service_{plan_id}"), InlineKeyboardButton(text=f"🖧 سرور: {server_text}", callback_data=f"plan_set_servers_{plan_id}")],
         [InlineKeyboardButton(text=f"⚙️ وضعیت: {status_text}", callback_data=f"plan_toggle_{plan_id}")],
         [InlineKeyboardButton(text="✅ ذخیره تغییرات", callback_data=f"plan_save_{plan_id}"), InlineKeyboardButton(text="🗑️ حذف", callback_data=f"plan_delete_{plan_id}")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")]
@@ -379,11 +382,12 @@ def get_wallet_keyboard(wallet_balance: int):
     ])
 
 
-def get_admin_card_keyboard(card_number: str):
+def get_admin_card_keyboard(card_number: str, card_holder: str):
     card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
+    holder_text = card_holder if card_holder else "هنوز نام صاحب حساب ثبت نشده"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"💳 شماره کارت: {card_text}", callback_data="admin_card_ro")],
-        [InlineKeyboardButton(text="✏️ تغییر شماره کارت", callback_data="admin_card_edit")],
+        [InlineKeyboardButton(text=f"👤 نام صاحب حساب: {holder_text}", callback_data="admin_card_holder_ro")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")],
     ])
 
@@ -443,14 +447,16 @@ def get_servers_keyboard(server_rows: list, service_type_id: int, server_health_
 def get_server_detail_keyboard(server, service_type_id: int, field_statuses: dict | None = None):
     field_statuses = field_statuses or {}
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('name'))} نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
+        [InlineKeyboardButton(text=f"⚪ نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
         [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('host'))} آی‌پی/هاست: {server.host}", callback_data=f"server_field_{server.id}_host")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('api_port'))} پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('username'))} یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('password'))} پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
+        [InlineKeyboardButton(text=f"⚪ پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
+        [InlineKeyboardButton(text=f"⚪ یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
+        [InlineKeyboardButton(text=f"⚪ پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
         [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('wg_interface'))} اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
         [InlineKeyboardButton(text=f"⚪ Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
         [InlineKeyboardButton(text=f"⚪ Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
+        [InlineKeyboardButton(text=f"⚪ رنج IP کاربران: {server.wg_client_network_base or '-'}", callback_data=f"server_field_{server.id}_wg_client_network_base")],
+        [InlineKeyboardButton(text=f"⚪ DNS: {server.wg_client_dns or '-'}", callback_data=f"server_field_{server.id}_wg_client_dns")],
         [InlineKeyboardButton(text=f"⚪ ظرفیت: {server.capacity}", callback_data=f"server_field_{server.id}_capacity")],
         [InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server.id}")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")],
@@ -465,8 +471,15 @@ def get_service_type_picker_keyboard(service_types: list, prefix: str):
 
 def get_plan_servers_picker_keyboard(servers: list, plan_id_token: str):
     buttons = [[InlineKeyboardButton(text=f"🖧 {s.name}", callback_data=f"plan_toggle_server_{plan_id_token}_{s.id}")] for s in servers]
-    buttons.append([InlineKeyboardButton(text="✅ پایان انتخاب", callback_data=f"plan_servers_done_{plan_id_token}")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"plan_back_service_select_{plan_id_token}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_plan_created_actions_keyboard(plan_id_token: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 بازگشت مرحله قبل", callback_data=f"plan_back_service_select_{plan_id_token}")],
+        [InlineKeyboardButton(text="🏠 بازگشت به منوی اصلی", callback_data="back_to_main")],
+    ])
 
 
 def get_plan_server_select_keyboard(servers: list, prefix: str):
