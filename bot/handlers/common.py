@@ -33,7 +33,7 @@ from keyboards import (
     get_admin_user_manage_keyboard, get_payment_method_keyboard_for_renew,
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
     get_admin_user_configs_keyboard, get_test_account_keyboard, get_service_types_keyboard,
-    get_servers_service_type_keyboard, get_servers_keyboard, get_server_action_keyboard,
+    get_servers_service_type_keyboard, get_servers_keyboard, get_server_detail_keyboard,
     get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard,
     get_representatives_keyboard, get_representative_action_keyboard,
     get_profile_keyboard, get_profile_finance_keyboard,
@@ -59,6 +59,7 @@ from services.plan_service import (
     build_wg_kwargs,
 )
 from services.card_service import get_card_info, set_card_info
+from services.server_service import check_server_connection
 
 dp = Dispatcher()
 

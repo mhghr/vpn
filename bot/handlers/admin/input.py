@@ -279,16 +279,25 @@ async def handle_admin_input(message: Message):
             await message.answer("❌ عملیات لغو شد.", parse_mode="HTML")
             return
         
-        if state.get("step") == "edit_capacity":
+        if state.get("step") == "edit_field":
             db = SessionLocal()
             try:
                 srv = db.query(Server).filter(Server.id == state.get("server_id")).first()
                 if not srv:
                     await message.answer("❌ سرور یافت نشد.", parse_mode="HTML")
                     return
-                srv.capacity = int(normalize_numbers(text) or 0)
+                field = state.get("field")
+                value = text.strip()
+                if field in {"api_port", "wg_server_port", "capacity"}:
+                    value = int(normalize_numbers(value) or 0)
+                setattr(srv, field, value)
                 db.commit()
-                await message.answer("✅ ظرفیت سرور ویرایش شد.", parse_mode="HTML")
+                await message.answer("✅ پارامتر سرور ویرایش شد.", parse_mode="HTML")
+                await message.answer(
+                    "🖧 مدیریت سرور (برای تغییر، روی هر پارامتر بزنید):",
+                    reply_markup=get_server_detail_keyboard(srv, srv.service_type_id, None),
+                    parse_mode="HTML"
+                )
             finally:
                 db.close()
                 admin_server_state.pop(user_id, None)

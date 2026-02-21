@@ -420,10 +420,22 @@ def get_servers_keyboard(server_rows: list, service_type_id: int):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_server_action_keyboard(server_id: int, service_type_id: int):
+def get_server_detail_keyboard(server, service_type_id: int, is_connected: bool | None = None):
+    conn_icon = "✅" if is_connected else ("❌" if is_connected is False else "➖")
+    conn_text = f"{conn_icon} ارتباط با سرور"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ ویرایش", callback_data=f"server_edit_{server_id}"), InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server_id}")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")]
+        [InlineKeyboardButton(text=f"📝 نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
+        [InlineKeyboardButton(text=f"🌐 آی‌پی/هاست: {server.host}", callback_data=f"server_field_{server.id}_host")],
+        [InlineKeyboardButton(text=f"🔌 پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
+        [InlineKeyboardButton(text=f"👤 یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
+        [InlineKeyboardButton(text=f"🔒 پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
+        [InlineKeyboardButton(text=f"🧩 اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
+        [InlineKeyboardButton(text=f"📍 Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
+        [InlineKeyboardButton(text=f"🚪 Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
+        [InlineKeyboardButton(text=f"👥 ظرفیت: {server.capacity}", callback_data=f"server_field_{server.id}_capacity")],
+        [InlineKeyboardButton(text=conn_text, callback_data=f"server_test_{server.id}")],
+        [InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server.id}")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")],
     ])
 
 
