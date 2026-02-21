@@ -222,7 +222,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         finally:
             db.close()
 
-    elif data.startswith("plan_toggle_"):
+    elif data.startswith("plan_toggle_") and not data.startswith("plan_toggle_server_"):
         plan_id = int(data.split("_")[-1])
         db = SessionLocal()
         try:
@@ -330,6 +330,12 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         db = SessionLocal()
         try:
             servers = db.query(Server).filter(Server.service_type_id == service_type_id, Server.is_active == True).all()
+            if not servers:
+                await callback.message.answer(
+                    "❌ سروری اضافه نشده است. ابتدا سرور را اضافه کنید و سپس پلن را ایجاد کنید.",
+                    parse_mode="HTML"
+                )
+                return
             await callback.message.answer(
                 "در مرحله آخر سرور/سرورهای پلن را انتخاب کنید:",
                 reply_markup=get_plan_servers_picker_keyboard(servers, plan_id),
@@ -348,6 +354,12 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         db = SessionLocal()
         try:
             servers = db.query(Server).filter(Server.service_type_id == service_type_id, Server.is_active == True).all()
+            if not servers:
+                await callback.message.answer(
+                    "❌ سروری اضافه نشده است. ابتدا سرور را اضافه کنید و سپس پلن را ایجاد کنید.",
+                    parse_mode="HTML"
+                )
+                return
             await callback.message.answer("سرورهای مجاز پلن را انتخاب کنید (چندتایی مجاز است).", reply_markup=get_plan_servers_picker_keyboard(servers, plan_id), parse_mode="HTML")
         finally:
             db.close()
