@@ -608,26 +608,17 @@ async def handle_admin_input(message: Message):
                 if state.get("action") == "create" and state.get("plan_id") == "new":
                     db = SessionLocal()
                     try:
-                        plan_data = state.get("data", {})
-                        plan = Plan(
-                            name=plan_data["name"],
-                            duration_days=int(plan_data["days"]),
-                            traffic_gb=int(plan_data["traffic"]),
-                            price=int(plan_data["price"]),
-                            description=plan_data.get("description", "")
-                        )
-                        db.add(plan)
-                        db.commit()
-
+                        service_types = db.query(ServiceType).filter(ServiceType.is_active == True).all()
+                        if not service_types:
+                            await message.answer("❌ هیچ نوع سرویس فعالی یافت نشد. ابتدا نوع سرویس اضافه کنید.", parse_mode="HTML")
+                            return
                         await message.answer(
-                            f"✅ پلن «{plan.name}» با موفقیت ایجاد شد.\n\n" + get_plan_creation_summary(state["data"]),
+                            "✅ اطلاعات پایه پلن ثبت شد. حالا نوع سرویس را انتخاب کنید:",
+                            reply_markup=get_service_type_picker_keyboard(service_types, "plan_pick_service_new_"),
                             parse_mode="HTML"
                         )
-                        all_plans = db.query(Plan).all()
-                        await message.answer(PLANS_MESSAGE, reply_markup=get_plans_keyboard(all_plans), parse_mode="HTML")
                     finally:
                         db.close()
-                        admin_plan_state.pop(user_id, None)
                 else:
                     await message.answer(
                         get_plan_creation_summary(state["data"]),

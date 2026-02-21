@@ -327,6 +327,17 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         admin_plan_state[user_id] = current_state
         await callback.message.answer("✅ نوع سرویس ثبت شد.", parse_mode="HTML")
 
+        db = SessionLocal()
+        try:
+            servers = db.query(Server).filter(Server.service_type_id == service_type_id, Server.is_active == True).all()
+            await callback.message.answer(
+                "در مرحله آخر سرور/سرورهای پلن را انتخاب کنید:",
+                reply_markup=get_plan_servers_picker_keyboard(servers, plan_id),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
+
     elif data.startswith("plan_set_servers_"):
         plan_id = data.split("_")[-1]
         st = admin_plan_state.get(user_id, {"data": {}})
@@ -362,6 +373,9 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price"), plan_data.get("service_type_id")]):
             await callback.message.answer("❌ لطفاً تمام فیلدهای الزامی (از جمله نوع سرویس) را تکمیل کنید.", parse_mode="HTML")
             return
+        if not plan_data.get("server_ids"):
+            await callback.message.answer("❌ در مرحله آخر باید حداقل یک سرور برای پلن انتخاب کنید.", parse_mode="HTML")
+            return
         # Convert Persian/Arabic numbers to English
         days = normalize_numbers(plan_data.get("days", "0"))
         traffic = normalize_numbers(plan_data.get("traffic", "0"))
@@ -394,6 +408,9 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         plan_data = state.get("data", {})
         if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price"), plan_data.get("service_type_id")]):
             await callback.message.answer("❌ لطفاً تمام فیلدهای الزامی (از جمله نوع سرویس) را تکمیل کنید.", parse_mode="HTML")
+            return
+        if not plan_data.get("server_ids"):
+            await callback.message.answer("❌ در مرحله آخر باید حداقل یک سرور برای پلن انتخاب کنید.", parse_mode="HTML")
             return
         # Convert Persian/Arabic numbers to English
         days = normalize_numbers(plan_data.get("days", "0"))
