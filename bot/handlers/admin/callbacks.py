@@ -11,19 +11,13 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         card_number, card_holder = get_card_info()
         await callback.message.answer("💳 مدیریت اطلاعات کارت", reply_markup=get_admin_card_keyboard(card_number, card_holder), parse_mode="HTML")
 
-    elif data == "admin_card_ro":
-        await callback.answer("این مورد فقط نمایشی است.", show_alert=False)
-
-    elif data == "admin_card_holder_ro":
-        await callback.answer("این مورد فقط نمایشی است.", show_alert=False)
-
-    elif data == "admin_card_edit":
+    elif data in {"admin_card_ro", "admin_card_edit"}:
         admin_card_state[user_id] = {"step": "card_number"}
-        await callback.message.answer("شماره کارت جدید را ارسال کنید:", parse_mode="HTML")
+        await callback.message.answer("مقدار جدید شماره کارت را وارد کنید:", parse_mode="HTML")
 
-    elif data == "admin_card_holder_edit":
+    elif data in {"admin_card_holder_ro", "admin_card_holder_edit"}:
         admin_card_state[user_id] = {"step": "card_holder"}
-        await callback.message.answer("نام صاحب حساب را ارسال کنید:", parse_mode="HTML")
+        await callback.message.answer("مقدار جدید نام صاحب حساب را وارد کنید:", parse_mode="HTML")
 
     elif data == "admin_panels":
         pending_panel = load_pending_panel()

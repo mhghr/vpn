@@ -385,8 +385,6 @@ def get_admin_card_keyboard(card_number: str, card_holder: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"💳 شماره کارت: {card_text}", callback_data="admin_card_ro")],
         [InlineKeyboardButton(text=f"👤 نام صاحب حساب: {holder_text}", callback_data="admin_card_holder_ro")],
-        [InlineKeyboardButton(text="✏️ تغییر شماره کارت", callback_data="admin_card_edit")],
-        [InlineKeyboardButton(text="✏️ تغییر نام صاحب حساب", callback_data="admin_card_holder_edit")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")],
     ])
 
