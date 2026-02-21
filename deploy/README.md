@@ -22,3 +22,19 @@ sudo bash deploy/install_webhook.sh
 
 پس از اجرا، ربات و دیتابیس بدون نیاز به تغییر دستی اضافه بالا می‌آیند.
 همچنین فایل `bot/requirements.lock.txt` برای عیب‌یابی و تکرارپذیری نسخه‌ها ساخته می‌شود.
+
+## انتقال کاربران از CSV قدیمی
+
+اگر از دیتابیس قبلی خروجی CSV دارید (ستون **B** = `telegram_id`، ستون **C** = `first_name`، ستون **D** = `username`)، می‌توانید با اسکریپت زیر کاربران را وارد دیتابیس جدید کنید:
+
+```bash
+cd bot
+python import_legacy_users.py --csv users.csv
+```
+
+برای تست بدون ذخیره در دیتابیس:
+
+```bash
+cd bot
+python import_legacy_users.py --csv users.csv --dry-run
+```
