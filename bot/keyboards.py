@@ -5,7 +5,7 @@ def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
         [InlineKeyboardButton(text="🔗 کانفیگ‌های من", callback_data="configs"), InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy")],
         [InlineKeyboardButton(text="📚 آموزش اتصال", callback_data="user_tutorials"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
-        [InlineKeyboardButton(text="💰 کیف پول", callback_data="wallet"), InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
+        [InlineKeyboardButton(text="💳 شارژ کیف پول", callback_data="wallet"), InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
         [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile")],
     ]
     if is_admin_user:
@@ -20,6 +20,7 @@ def get_admin_keyboard(pending_panel=None):
         [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
         [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
         [InlineKeyboardButton(text="🤝 نمایندگی‌ها", callback_data="admin_representatives"), InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials")],
+        [InlineKeyboardButton(text="💳 شماره کارت", callback_data="admin_card_settings")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")],
     ]
     if pending_panel:
@@ -162,7 +163,7 @@ def get_receipt_action_keyboard(receipt_id: int):
     ])
 
 
-def get_receipt_done_keyboard(status_text: str):
+def get_receipt_done_keyboard(status_text: str = "✅ انجام شد"):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=status_text, callback_data="receipt_done")]
     ])
@@ -170,7 +171,7 @@ def get_receipt_done_keyboard(status_text: str):
 
 def get_found_users_keyboard(users: list):
     buttons = []
-    for user in users[:20]:
+    for user in users:
         name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "بدون نام"
         buttons.append([InlineKeyboardButton(text=f"{name} | {user.telegram_id}", callback_data=f"admin_user_{user.id}")])
     buttons.append([InlineKeyboardButton(text="🔍 جستجوی جدید", callback_data="admin_search_user"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
@@ -278,6 +279,15 @@ def get_config_detail_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_renew_confirmation_keyboard(config_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ بله، تمدید کن", callback_data=f"cfg_renew_force_yes_{config_id}"),
+            InlineKeyboardButton(text="❌ خیر", callback_data="cfg_renew_force_no"),
+        ]
+    ])
+
+
 def get_admin_user_configs_keyboard(user_id: int, configs: list):
     buttons = []
     for config in configs:
@@ -361,11 +371,20 @@ def get_profile_finance_keyboard(
     ])
 
 
-def get_wallet_keyboard():
+def get_wallet_keyboard(wallet_balance: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ شارژ کیف پول", callback_data="wallet_topup")],
-        [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile"), InlineKeyboardButton(text="🛒 خرید پلن", callback_data="buy")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
+        [InlineKeyboardButton(text=f"💰 موجودی کیف پول شما: {wallet_balance:,} تومان", callback_data="profile_ro")],
+        [InlineKeyboardButton(text="➕ افزایش اعتبار", callback_data="wallet_topup")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")],
+    ])
+
+
+def get_admin_card_keyboard(card_number: str):
+    card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💳 شماره کارت: {card_text}", callback_data="admin_card_ro")],
+        [InlineKeyboardButton(text="✏️ تغییر شماره کارت", callback_data="admin_card_edit")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")],
     ])
 
 
@@ -400,20 +419,41 @@ def get_servers_service_type_keyboard(service_types: list):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_servers_keyboard(server_rows: list, service_type_id: int):
+def _status_dot(value):
+    if value is True:
+        return "🟢"
+    if value is False:
+        return "🔴"
+    return "⚪"
+
+
+def get_servers_keyboard(server_rows: list, service_type_id: int, server_health_map: dict | None = None):
     buttons = []
+    server_health_map = server_health_map or {}
     for srv in server_rows:
         status = "🟢" if srv.is_active else "🔴"
-        buttons.append([InlineKeyboardButton(text=f"{status} {srv.name} ({srv.host})", callback_data=f"server_view_{srv.id}")])
+        health = server_health_map.get(srv.id)
+        health_dot = _status_dot(health)
+        buttons.append([InlineKeyboardButton(text=f"{status} {health_dot} {srv.name} ({srv.host})", callback_data=f"server_view_{srv.id}")])
     buttons.append([InlineKeyboardButton(text="➕ افزودن سرور", callback_data=f"server_add_{service_type_id}")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_servers")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_server_action_keyboard(server_id: int, service_type_id: int):
+def get_server_detail_keyboard(server, service_type_id: int, field_statuses: dict | None = None):
+    field_statuses = field_statuses or {}
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ ویرایش", callback_data=f"server_edit_{server_id}"), InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server_id}")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")]
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('name'))} 📝 نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('host'))} 🌐 آی‌پی/هاست: {server.host}", callback_data=f"server_field_{server.id}_host")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('api_port'))} 🔌 پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('username'))} 👤 یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('password'))} 🔒 پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('wg_interface'))} 🧩 اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
+        [InlineKeyboardButton(text=f"⚪ 📍 Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
+        [InlineKeyboardButton(text=f"⚪ 🚪 Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
+        [InlineKeyboardButton(text=f"⚪ 👥 ظرفیت: {server.capacity}", callback_data=f"server_field_{server.id}_capacity")],
+        [InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server.id}")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")],
     ])
 
 
