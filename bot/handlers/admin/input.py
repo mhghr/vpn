@@ -685,31 +685,10 @@ async def handle_admin_input(message: Message):
         return
 
     if user_id in admin_user_search_state:
-        query = text.strip().lower()
+        query = normalize_numbers(text.strip())
         db = SessionLocal()
         try:
-            # Use case-insensitive partial matching with like
-            from sqlalchemy import or_
-            search_pattern = f"%{query}%"
-            users = db.query(User).filter(
-                or_(
-                    User.telegram_id.ilike(search_pattern),
-                    User.username.ilike(search_pattern),
-                    User.first_name.ilike(search_pattern),
-                    User.last_name.ilike(search_pattern)
-                )
-            ).all()
-            
-            # Also check full name combination
-            if not users:
-                all_users = db.query(User).all()
-                found = []
-                for u in all_users:
-                    full_name = f"{u.first_name or ''} {u.last_name or ''}".strip().lower()
-                    if query in full_name:
-                        found.append(u)
-                users = found
-            
+            users = search_users(db, query)
             if users:
                 await message.answer("نتایج جستجو:", reply_markup=get_found_users_keyboard(users), parse_mode="HTML")
             else:

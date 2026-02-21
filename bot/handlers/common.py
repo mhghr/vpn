@@ -50,6 +50,7 @@ from services.user_service import (
     get_user,
     is_admin,
     calculate_org_user_financials as _calculate_org_user_financials,
+    search_users,
 )
 from services.plan_service import (
     get_plan_servers,

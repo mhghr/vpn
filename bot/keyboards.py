@@ -171,7 +171,7 @@ def get_receipt_done_keyboard(status_text: str):
 
 def get_found_users_keyboard(users: list):
     buttons = []
-    for user in users[:20]:
+    for user in users:
         name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "بدون نام"
         buttons.append([InlineKeyboardButton(text=f"{name} | {user.telegram_id}", callback_data=f"admin_user_{user.id}")])
     buttons.append([InlineKeyboardButton(text="🔍 جستجوی جدید", callback_data="admin_search_user"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
