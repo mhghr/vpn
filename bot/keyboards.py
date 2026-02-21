@@ -379,11 +379,14 @@ def get_wallet_keyboard(wallet_balance: int):
     ])
 
 
-def get_admin_card_keyboard(card_number: str):
+def get_admin_card_keyboard(card_number: str, card_holder: str):
     card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
+    holder_text = card_holder if card_holder else "هنوز نام صاحب حساب ثبت نشده"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"💳 شماره کارت: {card_text}", callback_data="admin_card_ro")],
+        [InlineKeyboardButton(text=f"👤 نام صاحب حساب: {holder_text}", callback_data="admin_card_holder_ro")],
         [InlineKeyboardButton(text="✏️ تغییر شماره کارت", callback_data="admin_card_edit")],
+        [InlineKeyboardButton(text="✏️ تغییر نام صاحب حساب", callback_data="admin_card_holder_edit")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")],
     ])
 

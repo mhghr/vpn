@@ -8,12 +8,22 @@ async def handle_admin_input(message: Message):
     
     if user_id in admin_card_state:
         state = admin_card_state[user_id]
-        if state.get("step") == "card_number":
+        step = state.get("step")
+        if step == "card_number":
             card_number = normalize_numbers(text).replace(" ", "")
-            set_card_info(card_number, "")
+            _old_number, old_holder = get_card_info()
+            set_card_info(card_number, old_holder)
             del admin_card_state[user_id]
             await message.answer("✅ شماره کارت با موفقیت ذخیره شد.", parse_mode="HTML")
-            await message.answer("💳 مدیریت شماره کارت", reply_markup=get_admin_card_keyboard(card_number), parse_mode="HTML")
+            await message.answer("💳 مدیریت اطلاعات کارت", reply_markup=get_admin_card_keyboard(card_number, old_holder), parse_mode="HTML")
+            return
+        if step == "card_holder":
+            holder_name = text.strip()
+            old_number, _old_holder = get_card_info()
+            set_card_info(old_number, holder_name)
+            del admin_card_state[user_id]
+            await message.answer("✅ نام صاحب حساب با موفقیت ذخیره شد.", parse_mode="HTML")
+            await message.answer("💳 مدیریت اطلاعات کارت", reply_markup=get_admin_card_keyboard(old_number, holder_name), parse_mode="HTML")
             return
 
     # Handle wallet adjust flow

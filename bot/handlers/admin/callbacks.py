@@ -8,15 +8,22 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         await callback.message.answer(ADMIN_MESSAGE, reply_markup=get_admin_keyboard(pending_panel), parse_mode="HTML")
 
     elif data == "admin_card_settings":
-        card_number, _card_holder = get_card_info()
-        await callback.message.answer("💳 مدیریت شماره کارت", reply_markup=get_admin_card_keyboard(card_number), parse_mode="HTML")
+        card_number, card_holder = get_card_info()
+        await callback.message.answer("💳 مدیریت اطلاعات کارت", reply_markup=get_admin_card_keyboard(card_number, card_holder), parse_mode="HTML")
 
     elif data == "admin_card_ro":
+        await callback.answer("این مورد فقط نمایشی است.", show_alert=False)
+
+    elif data == "admin_card_holder_ro":
         await callback.answer("این مورد فقط نمایشی است.", show_alert=False)
 
     elif data == "admin_card_edit":
         admin_card_state[user_id] = {"step": "card_number"}
         await callback.message.answer("شماره کارت جدید را ارسال کنید:", parse_mode="HTML")
+
+    elif data == "admin_card_holder_edit":
+        admin_card_state[user_id] = {"step": "card_holder"}
+        await callback.message.answer("نام صاحب حساب را ارسال کنید:", parse_mode="HTML")
 
     elif data == "admin_panels":
         pending_panel = load_pending_panel()
@@ -921,8 +928,14 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                 }
                 card_number, card_holder = get_card_info()
                 card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
-                holder_text = card_holder if card_holder else "-"
-                msg = f"💳 پرداخت کارت به کارت\n\nپلن: {plan.name}\nقیمت نهایی: {final_price} تومان\n\nلطفاً به شماره کارت زیر واریز کنید:\n\n🪪 شماره کارت:\n<code>{card_text}</code>\n\n👤 صاحب حساب: {holder_text}\n\nپس از واریز، تصویر فیش واریزی را ارسال کنید."
+                holder_text = card_holder if card_holder else "نام صاحب حساب"
+                msg = (
+                    f"💳 پرداخت کارت به کارت\n\n"
+                    f"پلن: {plan.name} ( {final_price:,} تومان )\n\n\n"
+                    f" لطفاً مبلغ {final_price:,} تومان به شماره کارت زیر واریز کنید و تصویر فیش واریزی رو در همین مرحله آپلود کنید .\n\n"
+                    f"<code>{card_text}</code>\n\n"
+                    f"{holder_text}"
+                )
                 await callback.message.answer(msg, parse_mode="HTML")
             else:
                 await callback.message.answer("❌ پلن یافت نشد.", parse_mode="HTML")
