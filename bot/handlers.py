@@ -34,7 +34,8 @@ from keyboards import (
     get_admin_user_configs_keyboard, get_test_account_keyboard, get_service_types_keyboard,
     get_servers_service_type_keyboard, get_servers_keyboard, get_server_action_keyboard,
     get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard,
-    get_representatives_keyboard, get_representative_action_keyboard
+    get_representatives_keyboard, get_representative_action_keyboard,
+    get_profile_keyboard, get_profile_finance_keyboard
 )
 
 from texts import (
@@ -1141,30 +1142,26 @@ async def handle_admin_input(message: Message):
 
         if state.get("action") == "test_account_setup":
             step = state.get("step")
-            try:
-                value = parse_positive_number(text, allow_float=(step == "traffic"))
-            except ValueError:
-                if step == "traffic":
-                    await message.answer(
-                        "❌ لطفاً حجم را به‌صورت عدد بزرگ‌تر از صفر وارد کنید (مثلاً <code>1</code> یا <code>0.5</code>).",
-                        parse_mode="HTML"
-                    )
-                else:
-                    await message.answer("❌ لطفاً یک عدد صحیح بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
-                return
+            field = state.get("field")
 
             if step == "days":
-                state["days"] = int(value)
-                state["step"] = "traffic"
-                await message.answer(
-                    "🌐 لطفاً حجم اکانت تست را به گیگ وارد کنید (مثلاً <code>1</code> یا <code>0.5</code>):",
-                    parse_mode="HTML"
-                )
+                try:
+                    days = int(parse_positive_number(text, allow_float=False))
+                except ValueError:
+                    await message.answer("❌ لطفاً تعداد روز را به‌صورت عدد صحیح بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
+                    return
+                admin_plan_state[user_id] = {"action": "test_account_setup", "step": "traffic", "days": days}
+                await message.answer("🌐 حجم اکانت تست را به گیگ وارد کنید (مثلاً <code>1</code> یا <code>0.5</code>):", parse_mode="HTML")
                 return
 
             if step == "traffic":
-                days = state.get("days")
-                traffic = float(value)
+                try:
+                    traffic = float(parse_positive_number(text, allow_float=True))
+                except ValueError:
+                    await message.answer("❌ لطفاً حجم را به‌صورت عدد بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
+                    return
+
+                days = state.get("days", 1)
                 db = SessionLocal()
                 try:
                     test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
@@ -1186,18 +1183,62 @@ async def handle_admin_input(message: Message):
                         )
                         db.add(test_plan)
                         action_text = "ایجاد شد"
-
                     db.commit()
+                    await message.answer(f"✅ اکانت تست با موفقیت {action_text}.", parse_mode="HTML")
                     await message.answer(
-                        f"✅ اکانت تست با موفقیت {action_text}.\n\n• مدت: {days} روز\n• حجم: {format_gb_value(traffic)} گیگ",
-                        parse_mode="HTML"
+                        "🧪 مدیریت اکانت تست\n\nروی هر پارامتر بزنید تا مقدار جدید را وارد کنید.",
+                        reply_markup=get_test_account_keyboard(
+                            days_text=str(test_plan.duration_days),
+                            traffic_text=format_gb_value(test_plan.traffic_gb),
+                            is_active=bool(test_plan.is_active),
+                            has_plan=True,
+                        ),
+                        parse_mode="HTML",
                     )
-                    all_plans = db.query(Plan).all()
-                    await message.answer(PLANS_MESSAGE, reply_markup=get_plans_keyboard(all_plans), parse_mode="HTML")
                 finally:
                     db.close()
                     admin_plan_state.pop(user_id, None)
                 return
+
+            if field in {"days", "traffic"}:
+                try:
+                    value = parse_positive_number(text, allow_float=(field == "traffic"))
+                except ValueError:
+                    if field == "traffic":
+                        await message.answer("❌ لطفاً ترافیک را به‌صورت عدد بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
+                    else:
+                        await message.answer("❌ لطفاً تعداد روز را به‌صورت عدد صحیح بزرگ‌تر از صفر وارد کنید.", parse_mode="HTML")
+                    return
+
+                db = SessionLocal()
+                try:
+                    test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+                    if not test_plan:
+                        await message.answer("❌ اکانت تست هنوز ایجاد نشده است. ابتدا «ایجاد اکانت تست» را بزنید.", parse_mode="HTML")
+                        return
+                    if field == "days":
+                        test_plan.duration_days = int(value)
+                    else:
+                        test_plan.traffic_gb = float(value)
+                    test_plan.price = 0
+                    test_plan.description = "پلن تست یک‌بار مصرف"
+                    db.commit()
+                    await message.answer("✅ مقدار جدید ذخیره شد.", parse_mode="HTML")
+                    await message.answer(
+                        "🧪 مدیریت اکانت تست\n\nروی هر پارامتر بزنید تا مقدار جدید را وارد کنید.",
+                        reply_markup=get_test_account_keyboard(
+                            days_text=str(test_plan.duration_days),
+                            traffic_text=format_gb_value(test_plan.traffic_gb),
+                            is_active=bool(test_plan.is_active),
+                            has_plan=True,
+                        ),
+                        parse_mode="HTML",
+                    )
+                finally:
+                    db.close()
+                    admin_plan_state.pop(user_id, None)
+                return
+
 
         step = state.get("step")
         field = state.get("field")
@@ -1576,17 +1617,12 @@ async def callback_handler(callback: CallbackQuery, bot):
             )
             owner_user = db.query(User).filter(User.telegram_id == config.user_telegram_id).first()
             is_org_customer = bool(owner_user and owner_user.is_organization_customer)
-            financials = calculate_org_user_financials(db, owner_user) if owner_user and is_org_customer else None
             await callback.message.answer(
                 msg,
                 reply_markup=get_config_detail_keyboard(
                     config.id,
                     can_renew=can_renew,
                     is_org_customer=is_org_customer,
-                    total_traffic_text=(f"{financials['total_traffic_gb']:.2f} GB" if financials else "-"),
-                    price_per_gb_text=(f"{financials['price_per_gb']:,} تومان" if financials else "-"),
-                    debt_text=(f"{financials['debt_amount']:,} تومان" if financials else "-"),
-                    last_settlement_text=(financials['last_settlement'] if financials else "-"),
                 ),
                 parse_mode="HTML"
             )
@@ -1596,8 +1632,55 @@ async def callback_handler(callback: CallbackQuery, bot):
     elif data == "admin_user_info_ro":
         await callback.answer("این بخش فقط جهت نمایش است.", show_alert=False)
 
-    elif data.startswith("cfg_enterprise_ro_"):
-        await callback.answer("این بخش فقط جهت نمایش است و توسط ادمین مدیریت می‌شود.", show_alert=True)
+    elif data.startswith("cfg_financial_"):
+        config_id = int(data.replace("cfg_financial_", ""))
+        db = SessionLocal()
+        try:
+            config = db.query(WireGuardConfig).filter(WireGuardConfig.id == config_id).first()
+            if not config:
+                await callback.answer("کانفیگ یافت نشد.", show_alert=True)
+                return
+            if str(user_id) != config.user_telegram_id and not is_admin(user_id):
+                await callback.answer("شما دسترسی ندارید.", show_alert=True)
+                return
+            owner_user = db.query(User).filter(User.telegram_id == config.user_telegram_id).first()
+            if not owner_user or not owner_user.is_organization_customer:
+                await callback.answer("این کانفیگ اطلاعات مالی سازمانی ندارد.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, owner_user)
+            finance_text = (
+                f"📊 مجموع ترافیک لینک‌های فعال: {financials['total_traffic_gb']:.2f} GB\n"
+                f"💰 هزینه هر گیگ: {financials['price_per_gb']:,} تومان\n"
+                f"🧾 مبلغ بدهکاری: {financials['debt_amount']:,} تومان\n"
+                f"🕓 زمان آخرین تسویه: {financials['last_settlement']}"
+            )
+            await callback.answer(finance_text, show_alert=True)
+        finally:
+            db.close()
+
+    elif data == "profile_ro" or data == "profile_finance_ro":
+        await callback.answer("این بخش فقط خواندنی است.", show_alert=False)
+
+    elif data == "profile_finance":
+        db = SessionLocal()
+        try:
+            user = get_user(db, str(user_id))
+            if not user or not user.is_organization_customer:
+                await callback.answer("اطلاعات مالی برای این حساب فعال نیست.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, user)
+            await callback.message.answer(
+                "💼 موارد مالی مشتری سازمانی (فقط خواندنی):",
+                reply_markup=get_profile_finance_keyboard(
+                    total_traffic_text=f"{financials['total_traffic_gb']:.2f} GB",
+                    price_per_gb_text=f"{financials['price_per_gb']:,} تومان",
+                    debt_text=f"{financials['debt_amount']:,} تومان",
+                    last_settlement_text=financials['last_settlement'],
+                ),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
 
     elif data.startswith("cfg_renew_unavailable_"):
         await callback.message.answer("ℹ️ گزینه تمدید زمانی فعال می‌شود که سرویس غیرفعال یا منقضی شده باشد.", parse_mode="HTML")
@@ -1673,34 +1756,20 @@ async def callback_handler(callback: CallbackQuery, bot):
                 ).count()
                 joined_date = format_jalali_date(user.joined_at) if user.joined_at else "نامشخص"
                 member_status = "✅ فعال" if user.is_member else "❌ غیرفعال"
-
-                msg = (
-                    f"👤 حساب کاربری\n\n"
-                    f"👤 نام: {user.first_name}"
+                await callback.message.answer(
+                    "👤 حساب کاربری\n\nبرای مشاهده جزئیات، از دکمه‌های فقط‌خواندنی زیر استفاده کنید:",
+                    reply_markup=get_profile_keyboard(
+                        first_name=user.first_name or "-",
+                        username=user.username,
+                        wallet_balance=user.wallet_balance,
+                        configs_count=configs_count,
+                        active_configs=active_configs,
+                        joined_date=joined_date,
+                        member_status=member_status,
+                        is_org_customer=bool(user.is_organization_customer),
+                    ),
+                    parse_mode="HTML",
                 )
-                if user.username:
-                    msg += f"\n📛 نام کاربری: @{user.username}"
-
-                msg += (
-                    f"\n\n📊 اطلاعات اکانت:\n"
-                    f"• 💰 موجودی کیف پول: {user.wallet_balance:,} تومان\n"
-                    f"• 🔐 تعداد کانفیگ‌ها: {configs_count}\n"
-                    f"• ✅ کانفیگ‌های فعال: {active_configs}\n"
-                    f"• 📅 تاریخ عضویت: {joined_date}\n"
-                    f"• 📌 وضعیت عضویت: {member_status}"
-                )
-
-                if user.is_organization_customer:
-                    financials = calculate_org_user_financials(db, user)
-                    msg += (
-                        f"\n\n🏢 اطلاعات سازمانی (فقط خواندنی):\n"
-                        f"• 📊 مجموع ترافیک لینک‌های فعال: {financials['total_traffic_gb']:.2f} GB\n"
-                        f"• 💰 هزینه هر گیگ: {financials['price_per_gb']:,} تومان\n"
-                        f"• 🧾 مبلغ بدهکاری: {financials['debt_amount']:,} تومان\n"
-                        f"• 🕓 زمان آخرین تسویه: {financials['last_settlement']}"
-                    )
-
-                await callback.message.answer(msg, parse_mode="HTML")
             else:
                 await callback.message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
         finally:
@@ -2669,33 +2738,62 @@ async def callback_handler(callback: CallbackQuery, bot):
         try:
             test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
             if test_plan:
-                status = "✅ فعال" if test_plan.is_active else "❌ غیرفعال"
-                desc = test_plan.description if test_plan.description else "ندارد"
-                msg = (
-                    "🧪 اطلاعات اکانت تست\n\n"
-                    f"• نام: {test_plan.name}\n"
-                    f"• مدت: {test_plan.duration_days} روز\n"
-                    f"• ترافیک: {test_plan.traffic_gb} گیگابایت\n"
-                    f"• قیمت: {test_plan.price} تومان\n"
-                    f"• وضعیت: {status}\n"
-                    f"• توضیحات: {desc}"
+                await callback.message.answer(
+                    "🧪 مدیریت اکانت تست\n\nروی هر پارامتر بزنید تا مقدار جدید را وارد کنید.",
+                    reply_markup=get_test_account_keyboard(
+                        days_text=str(test_plan.duration_days),
+                        traffic_text=format_gb_value(test_plan.traffic_gb),
+                        is_active=bool(test_plan.is_active),
+                        has_plan=True,
+                    ),
+                    parse_mode="HTML",
                 )
             else:
-                msg = "🧪 اکانت تست هنوز تعریف نشده است."
-            await callback.message.answer(msg, reply_markup=get_test_account_keyboard(bool(test_plan)), parse_mode="HTML")
+                await callback.message.answer(
+                    "🧪 اکانت تست هنوز تعریف نشده است.",
+                    reply_markup=get_test_account_keyboard(has_plan=False),
+                    parse_mode="HTML",
+                )
         finally:
             db.close()
 
+    elif data == "test_account_ro":
+        await callback.answer("این گزینه فقط جهت نمایش است.", show_alert=False)
+
     elif data == "plan_test_account_edit":
         admin_plan_state[user_id] = {"action": "test_account_setup", "step": "days"}
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        await callback.message.answer(
-            "🧪 ویرایش اکانت تست\n\nلطفاً تعداد روز اکانت تست را وارد کنید:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 انصراف", callback_data="admin_plans")]
-            ]),
-            parse_mode="HTML"
-        )
+        await callback.message.answer("⏰ تعداد روز اکانت تست را وارد کنید:", parse_mode="HTML")
+
+    elif data == "plan_test_set_days":
+        admin_plan_state[user_id] = {"action": "test_account_setup", "field": "days"}
+        await callback.message.answer("⏰ مقدار جدید مدت اکانت تست (روز) را وارد کنید:", parse_mode="HTML")
+
+    elif data == "plan_test_set_traffic":
+        admin_plan_state[user_id] = {"action": "test_account_setup", "field": "traffic"}
+        await callback.message.answer("🌐 مقدار جدید ترافیک اکانت تست (گیگ) را وارد کنید:\nمثال: <code>1</code> یا <code>0.5</code>", parse_mode="HTML")
+
+    elif data == "plan_test_toggle":
+        db = SessionLocal()
+        try:
+            test_plan = db.query(Plan).filter(Plan.name == TEST_ACCOUNT_PLAN_NAME).first()
+            if not test_plan:
+                await callback.answer("اکانت تست هنوز ایجاد نشده است.", show_alert=True)
+                return
+            test_plan.is_active = not bool(test_plan.is_active)
+            db.commit()
+            await callback.answer("وضعیت اکانت تست تغییر کرد.", show_alert=False)
+            await callback.message.answer(
+                "🧪 مدیریت اکانت تست\n\nروی هر پارامتر بزنید تا مقدار جدید را وارد کنید.",
+                reply_markup=get_test_account_keyboard(
+                    days_text=str(test_plan.duration_days),
+                    traffic_text=format_gb_value(test_plan.traffic_gb),
+                    is_active=bool(test_plan.is_active),
+                    has_plan=True,
+                ),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
 
     elif data == "plan_create":
         admin_plan_state[user_id] = {"action": "create", "plan_id": "new", "step": "name", "data": {}}
@@ -2716,15 +2814,38 @@ async def callback_handler(callback: CallbackQuery, bot):
         try:
             plan = db.query(Plan).filter(Plan.id == plan_id).first()
             if plan:
-                status = "✅ فعال" if plan.is_active else "❌ غیرفعال"
-                desc = plan.description if plan.description else "ندارد"
-                msg = f"📦 اطلاعات پلن\n\n• نام: {plan.name}\n• مدت: {plan.duration_days} روز\n• ترافیک: {plan.traffic_gb} گیگابایت\n• قیمت: {plan.price} تومان\n• وضعیت: {status}\n• توضیحات: {desc}"
-                await callback.message.answer(msg, reply_markup=get_plan_action_keyboard(plan.id, plan.is_active), parse_mode="HTML")
+                selected_server_ids = [m.server_id for m in db.query(PlanServerMap).filter(PlanServerMap.plan_id == plan.id).all()]
+                admin_plan_state[user_id] = {
+                    "action": "edit",
+                    "plan_id": plan_id,
+                    "data": {
+                        "name": plan.name,
+                        "days": str(plan.duration_days),
+                        "traffic": str(plan.traffic_gb),
+                        "price": str(plan.price),
+                        "description": plan.description or "",
+                        "service_type_id": plan.service_type_id,
+                        "server_ids": selected_server_ids,
+                    },
+                }
+                await callback.message.answer(
+                    "📦 مدیریت پلن\n\nروی هر پارامتر بزنید تا در صورت نیاز مقدار جدید وارد کنید.",
+                    reply_markup=get_plan_action_keyboard(
+                        plan_id=plan.id,
+                        plan_name=plan.name,
+                        days_text=str(plan.duration_days),
+                        traffic_text=format_gb_value(plan.traffic_gb),
+                        price_text=f"{plan.price:,}",
+                        description_text=(plan.description or "ندارد")[:40],
+                        is_active=bool(plan.is_active),
+                    ),
+                    parse_mode="HTML",
+                )
             else:
                 await callback.message.answer("❌ پلن یافت نشد.", parse_mode="HTML")
         finally:
             db.close()
-    
+
     elif data.startswith("plan_edit_"):
         plan_id = int(data.split("_")[-1])
         db = SessionLocal()
@@ -2750,17 +2871,26 @@ async def callback_handler(callback: CallbackQuery, bot):
                 db.commit()
                 status_text = "فعال" if plan.is_active else "غیرفعال"
                 await callback.message.answer(f"✅ پلن «{plan.name}» {status_text} شد.", parse_mode="HTML")
-                status = "✅ فعال" if plan.is_active else "❌ غیرفعال"
-                desc = plan.description if plan.description else "ندارد"
-                msg = f"📦 اطلاعات پلن\n\n• نام: {plan.name}\n• مدت: {plan.duration_days} روز\n• ترافیک: {plan.traffic_gb} گیگابایت\n• قیمت: {plan.price} تومان\n• وضعیت: {status}\n• توضیحات: {desc}"
-                await callback.message.answer(msg, reply_markup=get_plan_action_keyboard(plan.id, plan.is_active), parse_mode="HTML")
+                await callback.message.answer(
+                    "📦 مدیریت پلن\n\nروی هر پارامتر بزنید تا در صورت نیاز مقدار جدید وارد کنید.",
+                    reply_markup=get_plan_action_keyboard(
+                        plan_id=plan.id,
+                        plan_name=plan.name,
+                        days_text=str(plan.duration_days),
+                        traffic_text=format_gb_value(plan.traffic_gb),
+                        price_text=f"{plan.price:,}",
+                        description_text=(plan.description or "ندارد")[:40],
+                        is_active=bool(plan.is_active),
+                    ),
+                    parse_mode="HTML",
+                )
             else:
                 await callback.message.answer("❌ پلن یافت نشد.", parse_mode="HTML")
         except Exception as e:
             await callback.message.answer(f"❌ خطا: {str(e)}", parse_mode="HTML")
         finally:
             db.close()
-    
+
     elif data.startswith("plan_delete_"):
         plan_id = int(data.split("_")[-1])
         db = SessionLocal()
@@ -2786,35 +2916,35 @@ async def callback_handler(callback: CallbackQuery, bot):
         current_state = admin_plan_state.get(user_id, {})
         current = current_state.get("data", {}).get("name", "")
         admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "name", "data": current_state.get("data", {})}
-        await callback.message.answer(get_plan_field_prompt("name", current), parse_mode="HTML")
+        await callback.message.answer(f"📝 اگر می‌خواهید نام پلن را تغییر دهید، مقدار جدید را وارد کنید:\n\nنام فعلی: <code>{current or '-'}</code>", parse_mode="HTML")
     
     elif data.startswith("plan_set_days_"):
         plan_id = data.split("_")[-1]
         current_state = admin_plan_state.get(user_id, {})
         current = current_state.get("data", {}).get("days", "")
         admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "days", "data": current_state.get("data", {})}
-        await callback.message.answer(get_plan_field_prompt("days", current), parse_mode="HTML")
+        await callback.message.answer(f"⏰ اگر می‌خواهید مدت را تغییر دهید، تعداد روز جدید را وارد کنید:\n\nمقدار فعلی: <code>{current or '-'}</code>", parse_mode="HTML")
     
     elif data.startswith("plan_set_traffic_"):
         plan_id = data.split("_")[-1]
         current_state = admin_plan_state.get(user_id, {})
         current = current_state.get("data", {}).get("traffic", "")
         admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "traffic", "data": current_state.get("data", {})}
-        await callback.message.answer(get_plan_field_prompt("traffic", current), parse_mode="HTML")
+        await callback.message.answer(f"🌐 اگر می‌خواهید ترافیک را تغییر دهید، مقدار جدید (گیگ) را وارد کنید:\n\nمقدار فعلی: <code>{current or '-'}</code>", parse_mode="HTML")
     
     elif data.startswith("plan_set_price_"):
         plan_id = data.split("_")[-1]
         current_state = admin_plan_state.get(user_id, {})
         current = current_state.get("data", {}).get("price", "")
         admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "price", "data": current_state.get("data", {})}
-        await callback.message.answer(get_plan_field_prompt("price", current), parse_mode="HTML")
+        await callback.message.answer(f"💰 اگر می‌خواهید قیمت را تغییر دهید، قیمت جدید را وارد کنید:\n\nمقدار فعلی: <code>{current or '-'}</code>", parse_mode="HTML")
     
     elif data.startswith("plan_set_desc_"):
         plan_id = data.split("_")[-1]
         current_state = admin_plan_state.get(user_id, {})
         current = current_state.get("data", {}).get("description", "")
         admin_plan_state[user_id] = {"action": "create" if plan_id == "new" else "edit", "plan_id": plan_id, "field": "description", "data": current_state.get("data", {})}
-        await callback.message.answer(get_plan_field_prompt("description", current), parse_mode="HTML")
+        await callback.message.answer(f"📄 اگر می‌خواهید توضیحات را تغییر دهید، متن جدید را وارد کنید:\n\nمقدار فعلی: <code>{current or '-'}</code>", parse_mode="HTML")
     
     elif data.startswith("plan_set_service_"):
         plan_id = data.split("_")[-1]

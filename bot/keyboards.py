@@ -46,11 +46,13 @@ def get_plans_keyboard(plans: list = None):
     buttons = []
     if plans:
         for plan in plans:
+            if plan.name == "اکانت تست":
+                continue
             status_emoji = "🟢" if plan.is_active else "🔴"
             buttons.append([InlineKeyboardButton(text=f"{status_emoji} {plan.name}", callback_data=f"plan_view_{plan.id}")])
     else:
         buttons.append([InlineKeyboardButton(text="📋 لیست پلن‌ها", callback_data="plan_list")])
-    
+
     buttons.append([InlineKeyboardButton(text="➕ افزودن پلن جدید", callback_data="plan_create")])
     buttons.append([InlineKeyboardButton(text="🧪 اکانت تست", callback_data="plan_test_account")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")])
@@ -60,6 +62,8 @@ def get_plans_keyboard(plans: list = None):
 def get_plan_list_keyboard(plans: list):
     buttons = []
     for plan in plans:
+        if plan.name == "اکانت تست":
+            continue
         status_emoji = "🟢" if plan.is_active else "🔴"
         buttons.append([InlineKeyboardButton(text=f"{status_emoji} {plan.name}", callback_data=f"plan_view_{plan.id}")])
     buttons.append([InlineKeyboardButton(text="➕ پلن جدید", callback_data="plan_create")])
@@ -69,19 +73,31 @@ def get_plan_list_keyboard(plans: list):
 
 
 
-
-def get_test_account_keyboard(has_plan: bool):
-    edit_label = "✏️ ویرایش اکانت تست" if has_plan else "➕ ایجاد اکانت تست"
+def get_test_account_keyboard(days_text: str = "-", traffic_text: str = "-", is_active: bool = True, has_plan: bool = False):
+    status_text = "✅ فعال" if is_active else "❌ غیرفعال"
+    create_or_edit = "➕ ایجاد اکانت تست" if not has_plan else "🆕 ایجاد مجدد اکانت تست"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=edit_label, callback_data="plan_test_account_edit")],
+        [InlineKeyboardButton(text=f"🧪 نام پلن: اکانت تست", callback_data="test_account_ro")],
+        [InlineKeyboardButton(text=f"⏰ مدت: {days_text} روز", callback_data="plan_test_set_days")],
+        [InlineKeyboardButton(text=f"🌐 ترافیک: {traffic_text} گیگ", callback_data="plan_test_set_traffic")],
+        [InlineKeyboardButton(text=f"💰 قیمت: 0 تومان", callback_data="test_account_ro")],
+        [InlineKeyboardButton(text=f"⚙️ وضعیت: {status_text}", callback_data="plan_test_toggle")],
+        [InlineKeyboardButton(text=create_or_edit, callback_data="plan_test_account_edit")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")]
     ])
 
-def get_plan_action_keyboard(plan_id: int, is_active: bool = True):
-    status_emoji = "🔴 غیرفعال" if is_active else "🟢 فعال"
+
+def get_plan_action_keyboard(plan_id: int, plan_name: str, days_text: str, traffic_text: str, price_text: str, description_text: str, is_active: bool = True):
+    status_text = "✅ فعال" if is_active else "❌ غیرفعال"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ ویرایش", callback_data=f"plan_edit_{plan_id}"), InlineKeyboardButton(text=status_emoji, callback_data=f"plan_toggle_{plan_id}")],
-        [InlineKeyboardButton(text="🗑️ حذف", callback_data=f"plan_delete_{plan_id}"), InlineKeyboardButton(text="📋 لیست", callback_data="plan_list")],
+        [InlineKeyboardButton(text=f"📝 نام پلن: {plan_name}", callback_data=f"plan_set_name_{plan_id}")],
+        [InlineKeyboardButton(text=f"⏰ مدت زمان: {days_text} روز", callback_data=f"plan_set_days_{plan_id}")],
+        [InlineKeyboardButton(text=f"🌐 حجم ترافیک: {traffic_text} گیگ", callback_data=f"plan_set_traffic_{plan_id}")],
+        [InlineKeyboardButton(text=f"💰 قیمت: {price_text} تومان", callback_data=f"plan_set_price_{plan_id}")],
+        [InlineKeyboardButton(text=f"📄 توضیحات: {description_text}", callback_data=f"plan_set_desc_{plan_id}")],
+        [InlineKeyboardButton(text="🧩 نوع سرویس", callback_data=f"plan_set_service_{plan_id}"), InlineKeyboardButton(text="🖧 سرورها", callback_data=f"plan_set_servers_{plan_id}")],
+        [InlineKeyboardButton(text=f"⚙️ وضعیت: {status_text}", callback_data=f"plan_toggle_{plan_id}")],
+        [InlineKeyboardButton(text="✅ ذخیره تغییرات", callback_data=f"plan_save_{plan_id}"), InlineKeyboardButton(text="🗑️ حذف", callback_data=f"plan_delete_{plan_id}")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_plans")]
     ])
 
@@ -249,10 +265,6 @@ def get_config_detail_keyboard(
     config_id: int,
     can_renew: bool = False,
     is_org_customer: bool = False,
-    total_traffic_text: str = "-",
-    price_per_gb_text: str = "-",
-    debt_text: str = "-",
-    last_settlement_text: str = "-",
 ):
     """User view config detail keyboard"""
     buttons = []
@@ -261,13 +273,7 @@ def get_config_detail_keyboard(
     buttons.append([InlineKeyboardButton(text=renew_label, callback_data=renew_callback)])
 
     if is_org_customer:
-        buttons.extend([
-            [InlineKeyboardButton(text=f"📊 مجموع ترافیک لینک‌های فعال: {total_traffic_text}", callback_data="cfg_enterprise_ro_traffic")],
-            [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data="cfg_enterprise_ro_price")],
-            [InlineKeyboardButton(text="✅ تسویه حساب: فقط توسط ادمین", callback_data="cfg_enterprise_ro_settle")],
-            [InlineKeyboardButton(text=f"🧾 مبلغ بدهکاری: {debt_text}", callback_data="cfg_enterprise_ro_debt")],
-            [InlineKeyboardButton(text=f"🕓 آخرین تسویه: {last_settlement_text}", callback_data="cfg_enterprise_ro_last_settlement")],
-        ])
+        buttons.append([InlineKeyboardButton(text="💼 موارد مالی", callback_data=f"cfg_financial_{config_id}")])
 
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -312,6 +318,47 @@ def get_user_config_detail_keyboard(config_id: int):
         [InlineKeyboardButton(text="📥 دریافت فایل کانفیگ", callback_data=f"mycfg_file_{config_id}")],
         [InlineKeyboardButton(text="📷 دریافت QR Code", callback_data=f"mycfg_qr_{config_id}")],
         [InlineKeyboardButton(text="🔙 بازگشت به لیست کانفیگ‌ها", callback_data="configs")]
+    ])
+
+
+def get_profile_keyboard(
+    first_name: str,
+    username: str,
+    wallet_balance: int,
+    configs_count: int,
+    active_configs: int,
+    joined_date: str,
+    member_status: str,
+    is_org_customer: bool = False,
+):
+    username_text = f"@{username}" if username else "ندارد"
+    buttons = [
+        [InlineKeyboardButton(text=f"👤 نام: {first_name}", callback_data="profile_ro")],
+        [InlineKeyboardButton(text=f"📛 نام کاربری: {username_text}", callback_data="profile_ro")],
+        [InlineKeyboardButton(text=f"💰 موجودی کیف پول: {wallet_balance:,} تومان", callback_data="profile_ro")],
+        [InlineKeyboardButton(text=f"🔐 تعداد کانفیگ‌ها: {configs_count}", callback_data="profile_ro")],
+        [InlineKeyboardButton(text=f"✅ کانفیگ‌های فعال: {active_configs}", callback_data="profile_ro")],
+        [InlineKeyboardButton(text=f"📅 تاریخ عضویت: {joined_date}", callback_data="profile_ro")],
+        [InlineKeyboardButton(text=f"📌 وضعیت عضویت: {member_status}", callback_data="profile_ro")],
+    ]
+    if is_org_customer:
+        buttons.append([InlineKeyboardButton(text="💼 موارد مالی", callback_data="profile_finance")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_profile_finance_keyboard(
+    total_traffic_text: str,
+    price_per_gb_text: str,
+    debt_text: str,
+    last_settlement_text: str,
+):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📊 مجموع ترافیک لینک‌های فعال: {total_traffic_text}", callback_data="profile_finance_ro")],
+        [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data="profile_finance_ro")],
+        [InlineKeyboardButton(text=f"🧾 مبلغ بدهکاری: {debt_text}", callback_data="profile_finance_ro")],
+        [InlineKeyboardButton(text=f"🕓 زمان آخرین تسویه: {last_settlement_text}", callback_data="profile_finance_ro")],
+        [InlineKeyboardButton(text="🔙 بازگشت به حساب کاربری", callback_data="profile")],
     ])
 
 
