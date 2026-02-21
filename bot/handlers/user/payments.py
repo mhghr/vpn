@@ -1,7 +1,7 @@
 from aiogram.types import Message
 from ..common import *
 
-@dp.message(lambda message: message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("step") == "discount_code")
+@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("step") == "discount_code")
 async def handle_discount_code_input(message: Message):
     user_id = message.from_user.id
     code_text = message.text.strip().upper()
@@ -48,7 +48,7 @@ async def handle_discount_code_input(message: Message):
     finally:
         db.close()
 
-@dp.message(lambda message: message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") == "wallet_topup" and user_payment_state.get(message.from_user.id, {}).get("step") == "amount_input")
+@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") == "wallet_topup" and user_payment_state.get(message.from_user.id, {}).get("step") == "amount_input")
 async def handle_wallet_topup_amount(message: Message):
     user_id = message.from_user.id
     amount_text = normalize_numbers((message.text or "").strip()).replace(",", "")
@@ -64,7 +64,7 @@ async def handle_wallet_topup_amount(message: Message):
 
 
 # Receipt photo handler
-@dp.message(lambda message: message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") in ["card_to_card", "wallet_topup"])
+@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") in ["card_to_card", "wallet_topup"])
 async def handle_receipt_photo(message: Message):
     user_id = message.from_user.id
     
