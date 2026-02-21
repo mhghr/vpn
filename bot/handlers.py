@@ -611,7 +611,7 @@ async def register_panel_handler(message: Message):
 
 
 @dp.message(lambda message: not is_admin(message.from_user.id) and (message.text or "").strip() in {
-    "🛒 خرید جدید", "📱 نرم‌افزارها", "🔗 کانفیگ‌های من", "📖 آموزش اتصال", "📚 آموزش", "💰 کیف پول", "🧪 اکانت تست", "👤 حساب کاربری"
+    "🛒 خرید جدید", "📱 نرم‌افزارها", "🔗 کانفیگ‌های من", "📚 آموزش اتصال", "💰 کیف پول", "🧪 اکانت تست", "👤 حساب کاربری"
 })
 async def handle_user_menu_buttons(message: Message):
     text = (message.text or "").strip()
@@ -637,13 +637,6 @@ async def handle_user_menu_buttons(message: Message):
                 [InlineKeyboardButton(text="📱 اندروید", url="https://play.google.com/store/apps/details?id=com.wireguard.android&hl=en")],
                 [InlineKeyboardButton(text="💻 ویندوز/مک/لینوکس", url="https://www.wireguard.com/install/")],
             ]),
-            parse_mode="HTML"
-        )
-        return
-
-    if text == "📖 آموزش اتصال":
-        await message.answer(
-            "📖 راهنمای اتصال به وی‌پی‌ان\n\nبرای اتصال به سرویس وی‌پی‌ان مراحل زیر را دنبال کنید:\n\n1️⃣ نرم‌افزار WireGuard را نصب کنید\n2️⃣ فایل کانفیگ را دریافت کنید\n3️⃣ فایل را در نرم‌افزار ایمپورت کنید\n4️⃣ به سرور متصل شوید\n\nبرای دریافت کانفیگ، به بخش «کانفیگ‌های من» مراجعه کنید.",
             parse_mode="HTML"
         )
         return
@@ -677,7 +670,7 @@ async def handle_user_menu_buttons(message: Message):
         await message.answer("برای ایجاد اکانت تست روی دکمه زیر بزنید.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🧪 ایجاد اکانت تست", callback_data="test_account_create")]]), parse_mode="HTML")
         return
 
-    if text == "📚 آموزش":
+    if text == "📚 آموزش اتصال":
         await message.answer("📚 لیست آموزش‌ها:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📚 آموزش‌ها", callback_data="user_tutorials")]]), parse_mode="HTML")
         return
 
@@ -1526,23 +1519,6 @@ async def callback_handler(callback: CallbackQuery, bot):
                 [InlineKeyboardButton(text="🍎 آیفون (iOS)", url="https://apps.apple.com/us/app/wireguard/id1441195209")],
                 [InlineKeyboardButton(text="📱 اندروید", url="https://play.google.com/store/apps/details?id=com.wireguard.android&hl=en")],
                 [InlineKeyboardButton(text="💻 ویندوز/مک/لینوکس", url="https://www.wireguard.com/install/")],
-                [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
-            ]),
-            parse_mode="HTML"
-        )
-    
-    elif data == "howto":
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        await callback.message.answer(
-            "📖 راهنمای اتصال به وی‌پی‌ان\n\n"
-            "برای اتصال به سرویس وی‌پی‌ان مراحل زیر را دنبال کنید:\n\n"
-            "1️⃣ نرم‌افزار WireGuard را نصب کنید\n"
-            "2️⃣ فایل کانفیگ را دریافت کنید\n"
-            "3️⃣ فایل را در نرم‌افزار ایمپورت کنید\n"
-            "4️⃣ به سرور متصل شوید\n\n"
-            "برای دریافت کانفیگ، به بخش «کانفیگ‌های من» مراجعه کنید.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔗 دریافت کانفیگ", callback_data="configs")],
                 [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
             ]),
             parse_mode="HTML"
@@ -2461,15 +2437,56 @@ async def callback_handler(callback: CallbackQuery, bot):
     elif data == "user_tutorials":
         db = SessionLocal()
         try:
-            service_types = db.query(ServiceType).filter(ServiceType.is_active == True).order_by(ServiceType.id.asc()).all()
-            if service_types:
+            # Get all active tutorials
+            tutorials = db.query(ServiceTutorial).filter(ServiceTutorial.is_active == True).all()
+            
+            if not tutorials:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                 await callback.message.answer(
-                    "📚 آموزش\n\nنوع سرویس را انتخاب کنید:",
-                    reply_markup=get_service_type_picker_keyboard(service_types, "user_tutorial_view_"),
+                    "📚 آموزش\n\nآموزشی یافت نشد.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")]
+                    ]),
                     parse_mode="HTML"
                 )
-            else:
-                await callback.message.answer("❌ هیچ نوع سرویسی یافت نشد.", parse_mode="HTML")
+                return
+            
+            # Send each tutorial
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            
+            for i, tutorial in enumerate(tutorials):
+                service_type = db.query(ServiceType).filter(ServiceType.id == tutorial.service_type_id).first()
+                service_name = service_type.name if service_type else ""
+                
+                # Send tutorial with media if available
+                if tutorial.media_file_id:
+                    if tutorial.media_type == "photo":
+                        await callback.message.answer_photo(
+                            photo=tutorial.media_file_id,
+                            caption=f"📚 {tutorial.title}\n\n{service_name}\n\n{tutorial.description or ''}",
+                            parse_mode="HTML"
+                        )
+                    elif tutorial.media_type == "video":
+                        await callback.message.answer_video(
+                            video=tutorial.media_file_id,
+                            caption=f"📚 {tutorial.title}\n\n{service_name}\n\n{tutorial.description or ''}",
+                            parse_mode="HTML"
+                        )
+                else:
+                    # No media, just send text
+                    await callback.message.answer(
+                        f"📚 {tutorial.title}\n\n{service_name}\n\n{tutorial.description or 'بدون توضیحات'}",
+                        parse_mode="HTML"
+                    )
+            
+            # Send back button after all tutorials
+            await callback.message.answer(
+                "برای بازگشت به منوی اصلی از دکمه زیر استفاده کنید:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")]
+                ]),
+                parse_mode="HTML"
+            )
         finally:
             db.close()
 
@@ -2492,7 +2509,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                 await callback.message.answer(
                     f"📚 آموزش {service_type.name}\n\nآموزشی یافت نشد.",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="user_tutorials")]
+                        [InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")]
                     ]),
                     parse_mode="HTML"
                 )
@@ -2518,7 +2535,7 @@ async def callback_handler(callback: CallbackQuery, bot):
                 await callback.message.answer(
                     f"📚 {tutorial.title}\n\n{tutorial.description or 'بدون توضیحات'}",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="user_tutorials")]
+                        [InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")]
                     ]),
                     parse_mode="HTML"
                 )
