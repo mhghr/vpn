@@ -268,10 +268,10 @@ async def send_qr_code(sender, qr_base64: str, caption: str = None, chat_id: int
         # Send photo
         if chat_id:
             # Using bot.send_photo
-            await sender.send_photo(chat_id=chat_id, photo=photo_file, caption=caption)
+            await sender.send_photo(chat_id=chat_id, photo=photo_file, caption=caption, parse_mode="HTML")
         else:
             # Using message.answer_photo
-            await sender.answer_photo(photo=photo_file, caption=caption)
+            await sender.answer_photo(photo=photo_file, caption=caption, parse_mode="HTML")
                 
     except Exception as e:
         print(f"Error sending QR code: {e}")
@@ -316,7 +316,7 @@ def parse_ip_range(input_str: str) -> dict:
     # Check if it's a range format (contains -)
     if '-' in input_str and '/' not in input_str:
         # Format: x.y.z.10-x.y.z.220 or x.y.z.10-220
-        parts = input_str.split('-')
+        parts = input_str.split('-', 1)
         if len(parts) == 2:
             try:
                 start_ip = parts[0].strip()
@@ -329,16 +329,21 @@ def parse_ip_range(input_str: str) -> dict:
                 base = '.'.join(start_parts[:3])
                 start_last = int(start_parts[3])
 
-                # Parse end IP - could be full IP or just last octet
+                # Parse end IP - could be full IP, just last octet,
+                # or typo format x.y.z-220 (extra dash in input)
+                if '-' in end_part:
+                    end_part = end_part.rsplit('-', 1)[-1].strip()
+
                 if '.' in end_part:
-                    # Full IP like 192.168.30.220
                     end_parts = end_part.split('.')
-                    if len(end_parts) != 4:
+                    if len(end_parts) == 4:
+                        # Full IP like 192.168.30.220
+                        end_base = '.'.join(end_parts[:3])
+                        if end_base != base:
+                            return None
+                        end_last = int(end_parts[3])
+                    else:
                         return None
-                    end_base = '.'.join(end_parts[:3])
-                    if end_base != base:
-                        return None
-                    end_last = int(end_parts[3])
                 else:
                     # Just last octet like 220
                     end_last = int(end_part)
