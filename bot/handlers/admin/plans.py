@@ -161,13 +161,13 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(
             "➕ ایجاد پلن جدید\n\n"
-            "یک نام برای پلن خود انتخاب کنید.",
+            "📝 یک نام برای پلن خود انتخاب کنید.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔙 انصراف", callback_data="admin_plans")]
             ]),
             parse_mode="HTML"
         )
-        await callback.message.answer(get_plan_field_prompt("name"), parse_mode="HTML")
+        
 
     elif data.startswith("plan_view_"):
         plan_id = int(data.split("_")[-1])
@@ -337,7 +337,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                 )
                 return
             await callback.message.answer(
-                "در مرحله آخر سرور/سرورهای پلن را انتخاب کنید:",
+                "سرور/سرورهای پلن را انتخاب کنید. با انتخاب سرور، پلن فوراً ذخیره می‌شود.",
                 reply_markup=get_plan_servers_picker_keyboard(servers, plan_id),
                 parse_mode="HTML"
             )
@@ -360,24 +360,103 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                     parse_mode="HTML"
                 )
                 return
-            await callback.message.answer("سرورهای مجاز پلن را انتخاب کنید (چندتایی مجاز است).", reply_markup=get_plan_servers_picker_keyboard(servers, plan_id), parse_mode="HTML")
+            await callback.message.answer("سرور/سرورهای پلن را انتخاب کنید. با انتخاب سرور، پلن فوراً ذخیره می‌شود.", reply_markup=get_plan_servers_picker_keyboard(servers, plan_id), parse_mode="HTML")
         finally:
             db.close()
 
     elif data.startswith("plan_toggle_server_"):
         _, _, _, plan_id_token, server_id_s = data.split("_", 4)
         server_id = int(server_id_s)
-        st = admin_plan_state.setdefault(user_id, {"data": {}})
-        selected = st.setdefault("data", {}).setdefault("server_ids", [])
-        if server_id in selected:
-            selected.remove(server_id)
-            await callback.answer("سرور حذف شد")
-        else:
-            selected.append(server_id)
-            await callback.answer("سرور اضافه شد")
+        state = admin_plan_state.get(user_id, {})
+        plan_data = state.get("data", {})
 
-    elif data.startswith("plan_servers_done_"):
-        await callback.message.answer("✅ انتخاب سرورها ذخیره شد.", parse_mode="HTML")
+        if not all([plan_data.get("name"), plan_data.get("days"), plan_data.get("traffic"), plan_data.get("price"), plan_data.get("service_type_id")]):
+            await callback.message.answer("❌ لطفاً ابتدا فیلدهای الزامی پلن را تکمیل کنید.", parse_mode="HTML")
+            return
+
+        # Convert Persian/Arabic numbers to English
+        days = normalize_numbers(plan_data.get("days", "0"))
+        traffic = normalize_numbers(plan_data.get("traffic", "0"))
+        price = normalize_numbers(plan_data.get("price", "0"))
+
+        db = SessionLocal()
+        try:
+            plan_id = state.get("plan_id")
+            if plan_id_token == "new" or str(plan_id) == "new":
+                plan = Plan(
+                    name=plan_data["name"],
+                    duration_days=int(days),
+                    traffic_gb=int(traffic),
+                    price=int(price),
+                    description=plan_data.get("description", ""),
+                    is_active=True,
+                    service_type_id=int(plan_data.get("service_type_id")),
+                )
+                db.add(plan)
+                db.commit()
+                state["plan_id"] = plan.id
+                state["action"] = "edit"
+                admin_plan_state[user_id] = state
+            else:
+                plan = db.query(Plan).filter(Plan.id == int(plan_id)).first()
+                if not plan:
+                    await callback.message.answer("❌ پلن یافت نشد.", parse_mode="HTML")
+                    return
+                plan.name = plan_data["name"]
+                plan.duration_days = int(days)
+                plan.traffic_gb = int(traffic)
+                plan.price = int(price)
+                plan.description = plan_data.get("description", "")
+                plan.service_type_id = int(plan_data.get("service_type_id") or 0) or plan.service_type_id
+                db.commit()
+
+            existing = db.query(PlanServerMap).filter(PlanServerMap.plan_id == plan.id, PlanServerMap.server_id == server_id).first()
+            if existing:
+                await callback.answer("این سرور قبلاً ثبت شده است", show_alert=False)
+                return
+
+            db.add(PlanServerMap(plan_id=plan.id, server_id=server_id))
+            db.commit()
+            await callback.message.answer(
+                f"✅ پلن «{plan.name}» با موفقیت اضافه شد.",
+                reply_markup=get_plan_created_actions_keyboard(str(plan.id)),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await callback.message.answer(f"❌ خطا در ذخیره پلن: {str(e)}", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("plan_back_service_select_"):
+        plan_id = data.split("_")[-1]
+        st = admin_plan_state.get(user_id, {"data": {}})
+        service_type_id = st.get("data", {}).get("service_type_id")
+        if not service_type_id and plan_id.isdigit():
+            db = SessionLocal()
+            try:
+                existing_plan = db.query(Plan).filter(Plan.id == int(plan_id)).first()
+                service_type_id = existing_plan.service_type_id if existing_plan else None
+            finally:
+                db.close()
+        if not service_type_id:
+            await callback.message.answer("❌ ابتدا نوع سرویس را انتخاب کنید.", parse_mode="HTML")
+            return
+        db = SessionLocal()
+        try:
+            servers = db.query(Server).filter(Server.service_type_id == service_type_id, Server.is_active == True).all()
+            if not servers:
+                await callback.message.answer(
+                    "❌ سروری اضافه نشده است. ابتدا سرور را اضافه کنید و سپس پلن را ایجاد کنید.",
+                    parse_mode="HTML"
+                )
+                return
+            await callback.message.answer(
+                "سرور/سرورهای پلن را انتخاب کنید. با انتخاب سرور، پلن فوراً ذخیره می‌شود.",
+                reply_markup=get_plan_servers_picker_keyboard(servers, plan_id),
+                parse_mode="HTML"
+            )
+        finally:
+            db.close()
 
     elif data == "plan_save_new":
         state = admin_plan_state.get(user_id, {})

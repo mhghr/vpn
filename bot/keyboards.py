@@ -465,8 +465,15 @@ def get_service_type_picker_keyboard(service_types: list, prefix: str):
 
 def get_plan_servers_picker_keyboard(servers: list, plan_id_token: str):
     buttons = [[InlineKeyboardButton(text=f"🖧 {s.name}", callback_data=f"plan_toggle_server_{plan_id_token}_{s.id}")] for s in servers]
-    buttons.append([InlineKeyboardButton(text="✅ پایان انتخاب", callback_data=f"plan_servers_done_{plan_id_token}")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"plan_back_service_select_{plan_id_token}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_plan_created_actions_keyboard(plan_id_token: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 بازگشت مرحله قبل", callback_data=f"plan_back_service_select_{plan_id_token}")],
+        [InlineKeyboardButton(text="🏠 بازگشت به منوی اصلی", callback_data="back_to_main")],
+    ])
 
 
 def get_plan_server_select_keyboard(servers: list, prefix: str):
