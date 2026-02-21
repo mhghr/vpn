@@ -107,15 +107,22 @@ def format_endpoint_host(host: str):
 
 def build_peer_comment(user_telegram_id: str, client_ip: str, legacy: bool = False) -> str:
     """Build MikroTik peer comment from user id and client IP."""
+    ip_parts = (client_ip or "").split(".")
+    ip_suffix = ""
+    if len(ip_parts) >= 2:
+        ip_suffix = f"{ip_parts[-2]}{ip_parts[-1]}"
+    elif client_ip:
+        ip_suffix = client_ip.replace(".", "")
+
     if not user_telegram_id:
-        last_octet = client_ip.rsplit('.', 1)[-1] if client_ip and '.' in client_ip else client_ip
-        return f"wg-{last_octet}" if last_octet else "wg-client"
+        return f"wg-{ip_suffix}" if ip_suffix else "wg-client"
 
     if legacy:
         last_octet = client_ip.rsplit('.', 1)[-1] if client_ip and '.' in client_ip else client_ip
         return f"{user_telegram_id}-{last_octet}" if last_octet else str(user_telegram_id)
 
-    return f"{client_ip}-{user_telegram_id}"
+    # Requested format: 3020-<user_id> for client IP like 192.168.30.20
+    return f"{ip_suffix}-{user_telegram_id}" if ip_suffix else str(user_telegram_id)
 
 
 def _safe_int(value) -> int:
