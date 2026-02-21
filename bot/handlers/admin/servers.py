@@ -19,7 +19,15 @@ async def handle_server_management_callbacks(callback: CallbackQuery, bot, data:
         db = SessionLocal()
         try:
             servers = db.query(Server).filter(Server.service_type_id == service_type_id).all()
-            await callback.message.answer("📋 لیست سرورها:", reply_markup=get_servers_keyboard(servers, service_type_id), parse_mode="HTML")
+            server_health_map = {}
+            for srv in servers:
+                statuses = evaluate_server_parameters(srv)
+                server_health_map[srv.id] = statuses.get("all_ok")
+            await callback.message.answer(
+                "📋 لیست سرورها:",
+                reply_markup=get_servers_keyboard(servers, service_type_id, server_health_map),
+                parse_mode="HTML"
+            )
         finally:
             db.close()
 
@@ -41,9 +49,10 @@ async def handle_server_management_callbacks(callback: CallbackQuery, bot, data:
             if not srv:
                 await callback.message.answer("❌ سرور یافت نشد.", parse_mode="HTML")
                 return
+            statuses = evaluate_server_parameters(srv)
             await callback.message.answer(
                 "🖧 مدیریت سرور (برای تغییر، روی هر پارامتر بزنید):",
-                reply_markup=get_server_detail_keyboard(srv, srv.service_type_id, None),
+                reply_markup=get_server_detail_keyboard(srv, srv.service_type_id, statuses),
                 parse_mode="HTML"
             )
         finally:
@@ -70,24 +79,6 @@ async def handle_server_management_callbacks(callback: CallbackQuery, bot, data:
             return
         admin_server_state[user_id] = {"step": "edit_field", "server_id": server_id, "field": field}
         await callback.message.answer(prompt, parse_mode="HTML")
-
-    elif data.startswith("server_test_"):
-        server_id = int(data.split("_")[-1])
-        db = SessionLocal()
-        try:
-            srv = db.query(Server).filter(Server.id == server_id).first()
-            if not srv:
-                await callback.message.answer("❌ سرور یافت نشد.", parse_mode="HTML")
-                return
-            ok, detail = check_server_connection(srv)
-            await callback.message.answer(
-                "🖧 مدیریت سرور (برای تغییر، روی هر پارامتر بزنید):",
-                reply_markup=get_server_detail_keyboard(srv, srv.service_type_id, ok),
-                parse_mode="HTML"
-            )
-            await callback.answer("✅ ارتباط برقرار است" if ok else f"❌ ارتباط برقرار نشد: {detail}", show_alert=not ok)
-        finally:
-            db.close()
 
     elif data.startswith("server_delete_"):
         server_id = int(data.split("_")[-1])

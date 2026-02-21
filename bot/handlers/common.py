@@ -59,7 +59,7 @@ from services.plan_service import (
     build_wg_kwargs,
 )
 from services.card_service import get_card_info, set_card_info
-from services.server_service import check_server_connection
+from services.server_service import evaluate_server_parameters
 
 dp = Dispatcher()
 
@@ -508,5 +508,4 @@ WALLET_MESSAGE = "💰 شارژ کیف پول\n\nموجودی فعلی شما: {
 
 # Message handlers
 from aiogram import filters
-
 

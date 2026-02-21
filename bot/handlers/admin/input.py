@@ -292,10 +292,11 @@ async def handle_admin_input(message: Message):
                     value = int(normalize_numbers(value) or 0)
                 setattr(srv, field, value)
                 db.commit()
+                statuses = evaluate_server_parameters(srv)
                 await message.answer("✅ پارامتر سرور ویرایش شد.", parse_mode="HTML")
                 await message.answer(
                     "🖧 مدیریت سرور (برای تغییر، روی هر پارامتر بزنید):",
-                    reply_markup=get_server_detail_keyboard(srv, srv.service_type_id, None),
+                    reply_markup=get_server_detail_keyboard(srv, srv.service_type_id, statuses),
                     parse_mode="HTML"
                 )
             finally:
@@ -709,5 +710,4 @@ async def handle_admin_input(message: Message):
             await message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
     finally:
         db.close()
-
 
