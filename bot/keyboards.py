@@ -446,11 +446,11 @@ def get_servers_keyboard(server_rows: list, service_type_id: int, server_health_
 def get_server_detail_keyboard(server, service_type_id: int, field_statuses: dict | None = None):
     field_statuses = field_statuses or {}
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('name'))} نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
+        [InlineKeyboardButton(text=f"⚪ نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
         [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('host'))} آی‌پی/هاست: {server.host}", callback_data=f"server_field_{server.id}_host")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('api_port'))} پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('username'))} یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('password'))} پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
+        [InlineKeyboardButton(text=f"⚪ پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
+        [InlineKeyboardButton(text=f"⚪ یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
+        [InlineKeyboardButton(text=f"⚪ پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
         [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('wg_interface'))} اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
         [InlineKeyboardButton(text=f"⚪ Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
         [InlineKeyboardButton(text=f"⚪ Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
