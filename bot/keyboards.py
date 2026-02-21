@@ -51,7 +51,7 @@ def get_plans_keyboard(plans: list = None):
             status_emoji = "🟢" if plan.is_active else "🔴"
             buttons.append([InlineKeyboardButton(text=f"{status_emoji} {plan.name}", callback_data=f"plan_view_{plan.id}")])
     else:
-        buttons.append([InlineKeyboardButton(text="📋 لیست پلن‌ها", callback_data="plan_list")])
+        buttons.append([InlineKeyboardButton(text="❌ پلنی یافت نشد", callback_data="admin_plans")])
 
     buttons.append([InlineKeyboardButton(text="➕ افزودن پلن جدید", callback_data="plan_create")])
     buttons.append([InlineKeyboardButton(text="🧪 اکانت تست", callback_data="plan_test_account")])
@@ -431,10 +431,10 @@ def get_servers_keyboard(server_rows: list, service_type_id: int, server_health_
     buttons = []
     server_health_map = server_health_map or {}
     for srv in server_rows:
-        status = "🟢" if srv.is_active else "🔴"
         health = server_health_map.get(srv.id)
-        health_dot = _status_dot(health)
-        buttons.append([InlineKeyboardButton(text=f"{status} {health_dot} {srv.name} ({srv.host})", callback_data=f"server_view_{srv.id}")])
+        is_ok = bool(srv.is_active and health is True)
+        status_dot = "🟢" if is_ok else "🔴"
+        buttons.append([InlineKeyboardButton(text=f"{status_dot} {srv.name} ({srv.host})", callback_data=f"server_view_{srv.id}")])
     buttons.append([InlineKeyboardButton(text="➕ افزودن سرور", callback_data=f"server_add_{service_type_id}")])
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_servers")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -443,15 +443,15 @@ def get_servers_keyboard(server_rows: list, service_type_id: int, server_health_
 def get_server_detail_keyboard(server, service_type_id: int, field_statuses: dict | None = None):
     field_statuses = field_statuses or {}
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('name'))} 📝 نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('host'))} 🌐 آی‌پی/هاست: {server.host}", callback_data=f"server_field_{server.id}_host")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('api_port'))} 🔌 پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('username'))} 👤 یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('password'))} 🔒 پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
-        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('wg_interface'))} 🧩 اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
-        [InlineKeyboardButton(text=f"⚪ 📍 Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
-        [InlineKeyboardButton(text=f"⚪ 🚪 Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
-        [InlineKeyboardButton(text=f"⚪ 👥 ظرفیت: {server.capacity}", callback_data=f"server_field_{server.id}_capacity")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('name'))} نام: {server.name}", callback_data=f"server_field_{server.id}_name")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('host'))} آی‌پی/هاست: {server.host}", callback_data=f"server_field_{server.id}_host")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('api_port'))} پورت API: {server.api_port}", callback_data=f"server_field_{server.id}_api_port")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('username'))} یوزرنیم: {server.username or '-'}", callback_data=f"server_field_{server.id}_username")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('password'))} پسورد: {'***' if server.password else '-'}", callback_data=f"server_field_{server.id}_password")],
+        [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('wg_interface'))} اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
+        [InlineKeyboardButton(text=f"⚪ Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
+        [InlineKeyboardButton(text=f"⚪ Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
+        [InlineKeyboardButton(text=f"⚪ ظرفیت: {server.capacity}", callback_data=f"server_field_{server.id}_capacity")],
         [InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server.id}")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")],
     ])
