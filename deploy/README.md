@@ -38,3 +38,25 @@ python import_legacy_users.py --csv users.csv
 cd bot
 python import_legacy_users.py --csv users.csv --dry-run
 ```
+
+
+## آپدیت امن از گیت (بعد از تغییر کد پروژه)
+
+برای آپدیت ربات روی سرور (حتی اگر فایل‌ها کم/زیاد شده باشند) از اسکریپت زیر استفاده کنید:
+
+```bash
+sudo bash deploy/update_from_git.sh
+```
+
+اگر خواستید از برنچ مشخص آپدیت کنید:
+
+```bash
+sudo bash deploy/update_from_git.sh main
+```
+
+این اسکریپت:
+- آخرین تغییرات را از `origin` می‌گیرد و روی همان برنچ/برنچ دلخواه سینک می‌کند
+- فایل `.env` سرور را نگه می‌دارد تا تنظیمات شما از بین نرود
+- `main.py` را دوباره روی حالت webhook ست می‌کند
+- وابستگی‌های پایتون را نصب/اعتبارسنجی می‌کند
+- سرویس systemd ربات را ری‌استارت می‌کند
