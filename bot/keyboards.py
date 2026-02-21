@@ -454,6 +454,8 @@ def get_server_detail_keyboard(server, service_type_id: int, field_statuses: dic
         [InlineKeyboardButton(text=f"{_status_dot(field_statuses.get('wg_interface'))} اینترفیس: {server.wg_interface or '-'}", callback_data=f"server_field_{server.id}_wg_interface")],
         [InlineKeyboardButton(text=f"⚪ Endpoint: {server.wg_server_endpoint or '-'}", callback_data=f"server_field_{server.id}_wg_server_endpoint")],
         [InlineKeyboardButton(text=f"⚪ Port WG: {server.wg_server_port or '-'}", callback_data=f"server_field_{server.id}_wg_server_port")],
+        [InlineKeyboardButton(text=f"⚪ رنج IP کاربران: {server.wg_client_network_base or '-'}", callback_data=f"server_field_{server.id}_wg_client_network_base")],
+        [InlineKeyboardButton(text=f"⚪ DNS: {server.wg_client_dns or '-'}", callback_data=f"server_field_{server.id}_wg_client_dns")],
         [InlineKeyboardButton(text=f"⚪ ظرفیت: {server.capacity}", callback_data=f"server_field_{server.id}_capacity")],
         [InlineKeyboardButton(text="🗑️ حذف", callback_data=f"server_delete_{server.id}")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"admin_servers_type_{service_type_id}")],

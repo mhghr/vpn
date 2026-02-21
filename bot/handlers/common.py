@@ -318,24 +318,35 @@ def parse_ip_range(input_str: str) -> dict:
         # Format: x.y.z.10-x.y.z.220 or x.y.z.10-220
         parts = input_str.split('-')
         if len(parts) == 2:
-            start_ip = parts[0].strip()
-            end_part = parts[1].strip()
-            
-            # Parse start IP
-            start_parts = start_ip.split('.')
-            if len(start_parts) == 4:
+            try:
+                start_ip = parts[0].strip()
+                end_part = parts[1].strip()
+
+                # Parse start IP
+                start_parts = start_ip.split('.')
+                if len(start_parts) != 4:
+                    return None
                 base = '.'.join(start_parts[:3])
                 start_last = int(start_parts[3])
-                
+
                 # Parse end IP - could be full IP or just last octet
                 if '.' in end_part:
                     # Full IP like 192.168.30.220
                     end_parts = end_part.split('.')
+                    if len(end_parts) != 4:
+                        return None
+                    end_base = '.'.join(end_parts[:3])
+                    if end_base != base:
+                        return None
                     end_last = int(end_parts[3])
                 else:
                     # Just last octet like 220
                     end_last = int(end_part)
-                
+
+                # Required bounds for custom range mode
+                if not (10 <= start_last <= 250 and 10 <= end_last <= 250 and start_last <= end_last):
+                    return None
+
                 return {
                     'base_ip': base,
                     'start_ip': start_ip,
@@ -345,6 +356,8 @@ def parse_ip_range(input_str: str) -> dict:
                     'start_last': start_last,
                     'end_last': end_last
                 }
+            except (ValueError, IndexError):
+                return None
     
     # Check if it's CIDR format
     if '/' in input_str:
