@@ -306,10 +306,23 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
         db = SessionLocal()
         try:
             user = get_user(db, str(user_id))
-            if user:
-                await callback.message.answer(f"💰 شارژ کیف پول\n\nموجودی فعلی شما: {user.wallet_balance} تومان\n\nبرای شارژ کیف پول، لطفاً با پشتیبانی تماس بگیرید.", parse_mode="HTML")
-            else:
-                await callback.message.answer(WALLET_MESSAGE.format(balance=0), parse_mode="HTML")
+            balance = (user.wallet_balance if user else 0)
+            await callback.message.answer("‌", reply_markup=get_wallet_keyboard(balance), parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data == "wallet_topup":
+        db = SessionLocal()
+        try:
+            user = get_user(db, str(user_id))
+            balance = user.wallet_balance if user else 0
+            card_number, _card_holder = get_card_info()
+            card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
+            user_payment_state[user_id] = {"method": "wallet_topup", "step": "amount_input"}
+            await callback.message.answer(
+                f"💳 افزایش اعتبار کیف پول\n\n💰 موجودی کیف پول شما: {balance:,} تومان\n\nبرای افزایش اعتبار لطفا مبلغ مورد نظر را به شماره کارت زیر واریز نمایید و عکس فیش واریز را در این مرحله آپلود کنید.\n\n🪪 شماره کارت:\n<code>{card_text}</code>\n\nابتدا مبلغ را به تومان ارسال کنید:",
+                parse_mode="HTML"
+            )
         finally:
             db.close()
 

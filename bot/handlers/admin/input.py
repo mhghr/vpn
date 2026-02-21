@@ -6,6 +6,16 @@ async def handle_admin_input(message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
     
+    if user_id in admin_card_state:
+        state = admin_card_state[user_id]
+        if state.get("step") == "card_number":
+            card_number = normalize_numbers(text).replace(" ", "")
+            set_card_info(card_number, "")
+            del admin_card_state[user_id]
+            await message.answer("✅ شماره کارت با موفقیت ذخیره شد.", parse_mode="HTML")
+            await message.answer("💳 مدیریت شماره کارت", reply_markup=get_admin_card_keyboard(card_number), parse_mode="HTML")
+            return
+
     # Handle wallet adjust flow
     if user_id in admin_wallet_adjust_state:
         state = admin_wallet_adjust_state[user_id]
@@ -104,11 +114,20 @@ async def handle_admin_input(message: Message):
                 # Notify user about rejection
                 try:
                     user_tg_id = int(receipt.user_telegram_id)
-                    await message.bot.send_message(
-                        chat_id=user_tg_id,
-                        text=f"❌ پرداخت شما رد شد.\n\n📋 دلیل: {reject_reason}\n\nبرای اطلاعات بیشتر با پشتیبانی تماس بگیرید.",
-                        parse_mode="HTML"
-                    )
+                    if receipt.payment_method == "wallet_topup":
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        await message.bot.send_message(
+                            chat_id=user_tg_id,
+                            text=f"متاسفانه به دلیل؛ {reject_reason} \"افزایش اعتبار انجام نشد.\"",
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 بازگشت به منوی اصلی", callback_data="back_to_main")]]),
+                            parse_mode="HTML"
+                        )
+                    else:
+                        await message.bot.send_message(
+                            chat_id=user_tg_id,
+                            text=f"❌ پرداخت شما رد شد.\n\n📋 دلیل: {reject_reason}\n\nبرای اطلاعات بیشتر با پشتیبانی تماس بگیرید.",
+                            parse_mode="HTML"
+                        )
                 except Exception as e:
                     print(f"Error notifying user about rejection: {e}")
                 

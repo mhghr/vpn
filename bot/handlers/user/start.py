@@ -64,7 +64,7 @@ async def register_panel_handler(message: Message):
 
 
 @dp.message(lambda message: not is_admin(message.from_user.id) and (message.text or "").strip() in {
-    "🛒 خرید جدید", "📱 نرم‌افزارها", "🔗 کانفیگ‌های من", "📚 آموزش اتصال", "💰 کیف پول", "🧪 اکانت تست", "👤 حساب کاربری"
+    "🛒 خرید جدید", "📱 نرم‌افزارها", "🔗 کانفیگ‌های من", "📚 آموزش اتصال", "💳 شارژ کیف پول", "🧪 اکانت تست", "👤 حساب کاربری"
 })
 async def handle_user_menu_buttons(message: Message):
     text = (message.text or "").strip()
@@ -106,7 +106,7 @@ async def handle_user_menu_buttons(message: Message):
             db.close()
         return
 
-    if text == "💰 کیف پول":
+    if text == "💳 شارژ کیف پول":
         db = SessionLocal()
         try:
             user = get_user(db, str(user_id))

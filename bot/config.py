@@ -73,3 +73,5 @@ admin_server_state = {}  # For server management flow
 admin_tutorial_state = {}  # For tutorial creation flow
 
 admin_representative_state = {}  # For representative management flow
+
+admin_card_state = {}  # For admin card-number edit flow

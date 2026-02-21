@@ -5,6 +5,17 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         pending_panel = load_pending_panel()
         await callback.message.answer(ADMIN_MESSAGE, reply_markup=get_admin_keyboard(pending_panel), parse_mode="HTML")
 
+    elif data == "admin_card_settings":
+        card_number, _card_holder = get_card_info()
+        await callback.message.answer("💳 مدیریت شماره کارت", reply_markup=get_admin_card_keyboard(card_number), parse_mode="HTML")
+
+    elif data == "admin_card_ro":
+        await callback.answer("این مورد فقط نمایشی است.", show_alert=False)
+
+    elif data == "admin_card_edit":
+        admin_card_state[user_id] = {"step": "card_number"}
+        await callback.message.answer("شماره کارت جدید را ارسال کنید:", parse_mode="HTML")
+
     elif data == "admin_panels":
         pending_panel = load_pending_panel()
         await callback.message.answer(PANELS_MESSAGE, reply_markup=get_panels_keyboard(pending_panel), parse_mode="HTML")
@@ -1065,8 +1076,7 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         admin_plan_state[user_id] = {"action": "create", "plan_id": "new", "step": "name", "data": {}}
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(
-            "➕ ایجاد پلن جدید\n\n"
-            "لطفاً اطلاعات پلن را مرحله‌به‌مرحله وارد کنید.",
+            "➕ ایجاد پلن جدید\n\nیک نام برای پلن خود انتخاب کنید.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔙 انصراف", callback_data="admin_plans")]
             ]),
@@ -1400,7 +1410,10 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                     "gift_code": current.get("gift_code"),
                     "server_id": current.get("server_id")
                 }
-                msg = f"💳 پرداخت کارت به کارت\n\nپلن: {plan.name}\nقیمت نهایی: {final_price} تومان\n\nلطفاً به شماره کارت زیر واریز کنید:\n\n🪪 شماره کارت:\n<code>{CARD_NUMBER}</code>\n\n👤 صاحب حساب: {CARD_HOLDER}\n\nپس از واریز، تصویر فیش واریزی را ارسال کنید."
+                card_number, card_holder = get_card_info()
+                card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
+                holder_text = card_holder if card_holder else "-"
+                msg = f"💳 پرداخت کارت به کارت\n\nپلن: {plan.name}\nقیمت نهایی: {final_price} تومان\n\nلطفاً به شماره کارت زیر واریز کنید:\n\n🪪 شماره کارت:\n<code>{card_text}</code>\n\n👤 صاحب حساب: {holder_text}\n\nپس از واریز، تصویر فیش واریزی را ارسال کنید."
                 await callback.message.answer(msg, parse_mode="HTML")
             else:
                 await callback.message.answer("❌ پلن یافت نشد.", parse_mode="HTML")
@@ -1450,6 +1463,26 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                 receipt.approved_at = datetime.utcnow()
                 receipt.approved_by = str(user_id)
                 db.commit()
+
+                if receipt.payment_method == "wallet_topup":
+                    wallet_user = get_user(db, receipt.user_telegram_id)
+                    if wallet_user:
+                        wallet_user.wallet_balance = (wallet_user.wallet_balance or 0) + (receipt.amount or 0)
+                        db.commit()
+                        try:
+                            await callback.message.bot.send_message(
+                                chat_id=int(receipt.user_telegram_id),
+                                text=f"✅ مبلغ {receipt.amount:,} تومان با اعتبار شما اضافه گردید.",
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            print(f"Error notifying wallet topup approval: {e}")
+                    await callback.message.answer(
+                        f"✅ شارژ کیف پول تایید شد.\n\n• مبلغ: {receipt.amount:,} تومان\n• کاربر: {receipt.user_telegram_id}",
+                        reply_markup=get_receipt_done_keyboard(),
+                        parse_mode="HTML"
+                    )
+                    return True
 
                 # Create WireGuard account
                 wg_created = False

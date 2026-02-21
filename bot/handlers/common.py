@@ -16,6 +16,7 @@ from config import (
     admin_plan_state, admin_create_account_state, user_payment_state,
     admin_user_search_state, admin_wallet_adjust_state, admin_discount_state, admin_receipt_reject_state,
     admin_service_type_state, admin_server_state, admin_tutorial_state, admin_representative_state,
+    admin_card_state,
     CARD_NUMBER, CARD_HOLDER,
     MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT,
     WG_INTERFACE, WG_SERVER_PUBLIC_KEY, WG_SERVER_ENDPOINT, WG_SERVER_PORT,
@@ -35,7 +36,8 @@ from keyboards import (
     get_servers_service_type_keyboard, get_servers_keyboard, get_server_action_keyboard,
     get_service_type_picker_keyboard, get_plan_servers_picker_keyboard, get_plan_server_select_keyboard,
     get_representatives_keyboard, get_representative_action_keyboard,
-    get_profile_keyboard, get_profile_finance_keyboard
+    get_profile_keyboard, get_profile_finance_keyboard,
+    get_wallet_keyboard, get_admin_card_keyboard
 )
 
 from texts import (
@@ -55,6 +57,7 @@ from services.plan_service import (
     get_available_servers_for_plan,
     build_wg_kwargs,
 )
+from services.card_service import get_card_info, set_card_info
 
 dp = Dispatcher()
 

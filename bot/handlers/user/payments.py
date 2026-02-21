@@ -48,8 +48,23 @@ async def handle_discount_code_input(message: Message):
     finally:
         db.close()
 
+@dp.message(lambda message: message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") == "wallet_topup" and user_payment_state.get(message.from_user.id, {}).get("step") == "amount_input")
+async def handle_wallet_topup_amount(message: Message):
+    user_id = message.from_user.id
+    amount_text = normalize_numbers((message.text or "").strip()).replace(",", "")
+    if not amount_text.isdigit() or int(amount_text) <= 0:
+        await message.answer("❌ لطفاً مبلغ معتبر (عدد) وارد کنید.", parse_mode="HTML")
+        return
+    amount = int(amount_text)
+    state = user_payment_state.get(user_id, {})
+    state["amount"] = amount
+    state["step"] = "receipt_upload"
+    user_payment_state[user_id] = state
+    await message.answer("✅ مبلغ ثبت شد. حالا لطفاً عکس فیش واریز را ارسال کنید.", parse_mode="HTML")
+
+
 # Receipt photo handler
-@dp.message(lambda message: message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") == "card_to_card")
+@dp.message(lambda message: message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") in ["card_to_card", "wallet_topup"])
 async def handle_receipt_photo(message: Message):
     user_id = message.from_user.id
     
@@ -58,7 +73,9 @@ async def handle_receipt_photo(message: Message):
         return
     
     payment_info = user_payment_state[user_id]
-    if payment_info.get("method") != "card_to_card":
+    if payment_info.get("method") not in ["card_to_card", "wallet_topup"]:
+        return
+    if payment_info.get("method") == "wallet_topup" and payment_info.get("step") != "receipt_upload":
         return
     
     # Check if message has a photo
@@ -73,20 +90,21 @@ async def handle_receipt_photo(message: Message):
     # Save receipt to database
     db = SessionLocal()
     try:
+        is_wallet_topup = payment_info.get("method") == "wallet_topup"
         receipt = PaymentReceipt(
             user_telegram_id=str(user_id),
-            plan_id=payment_info["plan_id"],
-            plan_name=payment_info["plan_name"],
-            amount=payment_info["price"],
-            payment_method="card_to_card",
-            server_id=payment_info.get("server_id"),
+            plan_id=(None if is_wallet_topup else payment_info["plan_id"]),
+            plan_name=("شارژ کیف پول" if is_wallet_topup else payment_info["plan_name"]),
+            amount=(payment_info.get("amount") if is_wallet_topup else payment_info["price"]),
+            payment_method=("wallet_topup" if is_wallet_topup else "card_to_card"),
+            server_id=(None if is_wallet_topup else payment_info.get("server_id")),
             receipt_file_id=file_id,
             status="pending"
         )
         db.add(receipt)
 
         gift_code = payment_info.get("gift_code")
-        if gift_code:
+        if payment_info.get("method") != "wallet_topup" and gift_code:
             gift = db.query(GiftCode).filter(GiftCode.code == gift_code).first()
             if gift:
                 gift.used_count = (gift.used_count or 0) + 1
@@ -99,7 +117,7 @@ async def handle_receipt_photo(message: Message):
         # Send confirmation to user
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await message.answer(
-            "✅ فیش پرداخت دریافت شد!\n\n⏰ لطفاً منتظر تایید پرداخت توسط مدیریت باشید.",
+            "سپاس از اعتماد شما . پس از تایید مبلغ مورد نظر به اعتبار شما اضافه خواهد شد ." if payment_info.get("method") == "wallet_topup" else "✅ فیش پرداخت دریافت شد!\n\n⏰ لطفاً منتظر تایید پرداخت توسط مدیریت باشید.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")]
             ]),
@@ -117,7 +135,10 @@ async def handle_receipt_photo(message: Message):
         for admin_id in ADMIN_IDS:
             try:
                 # Send photo with user info in caption
-                caption_text = f"💳 درخواست تایید پرداخت جدید\n\n👤 اطلاعات کاربر:\n• نام: {user_display_name}\n• آیدی: {user_id}\n• نام کاربری: {user_username}\n\n💰 اطلاعات پرداخت:\n• پلن: {payment_info['plan_name']}\n• مبلغ: {payment_info['price']} تومان\n• روش پرداخت: کارت به کارت"
+                if payment_info.get("method") == "wallet_topup":
+                    caption_text = f"💳 درخواست شارژ کیف پول\n\n👤 اطلاعات کاربر:\n• نام: {user_display_name}\n• آیدی: {user_id}\n• نام کاربری: {user_username}\n\n💰 اطلاعات پرداخت:\n• نوع: شارژ کیف پول\n• مبلغ: {payment_info.get('amount', 0)} تومان\n• روش پرداخت: کارت به کارت"
+                else:
+                    caption_text = f"💳 درخواست تایید پرداخت جدید\n\n👤 اطلاعات کاربر:\n• نام: {user_display_name}\n• آیدی: {user_id}\n• نام کاربری: {user_username}\n\n💰 اطلاعات پرداخت:\n• پلن: {payment_info['plan_name']}\n• مبلغ: {payment_info['price']} تومان\n• روش پرداخت: کارت به کارت"
                 await message.bot.send_photo(
                     chat_id=admin_id,
                     photo=file_id,

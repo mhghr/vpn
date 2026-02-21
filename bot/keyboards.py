@@ -5,7 +5,7 @@ def get_main_keyboard(is_admin_user: bool = False):
     buttons = [
         [InlineKeyboardButton(text="🔗 کانفیگ‌های من", callback_data="configs"), InlineKeyboardButton(text="🛒 خرید جدید", callback_data="buy")],
         [InlineKeyboardButton(text="📚 آموزش اتصال", callback_data="user_tutorials"), InlineKeyboardButton(text="📱 نرم‌افزارها", callback_data="software")],
-        [InlineKeyboardButton(text="💰 کیف پول", callback_data="wallet"), InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
+        [InlineKeyboardButton(text="💳 شارژ کیف پول", callback_data="wallet"), InlineKeyboardButton(text="🧪 اکانت تست", callback_data="test_account_create")],
         [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile")],
     ]
     if is_admin_user:
@@ -20,6 +20,7 @@ def get_admin_keyboard(pending_panel=None):
         [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
         [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
         [InlineKeyboardButton(text="🤝 نمایندگی‌ها", callback_data="admin_representatives"), InlineKeyboardButton(text="📚 آموزش", callback_data="admin_tutorials")],
+        [InlineKeyboardButton(text="💳 شماره کارت", callback_data="admin_card_settings")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")],
     ]
     if pending_panel:
@@ -361,11 +362,20 @@ def get_profile_finance_keyboard(
     ])
 
 
-def get_wallet_keyboard():
+def get_wallet_keyboard(wallet_balance: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ شارژ کیف پول", callback_data="wallet_topup")],
-        [InlineKeyboardButton(text="👤 حساب کاربری", callback_data="profile"), InlineKeyboardButton(text="🛒 خرید پلن", callback_data="buy")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")]
+        [InlineKeyboardButton(text=f"💰 موجودی کیف پول شما: {wallet_balance:,} تومان", callback_data="profile_ro")],
+        [InlineKeyboardButton(text="➕ افزایش اعتبار", callback_data="wallet_topup")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_main")],
+    ])
+
+
+def get_admin_card_keyboard(card_number: str):
+    card_text = card_number if card_number else "هنوز شماره کارتی داده نشده"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💳 شماره کارت: {card_text}", callback_data="admin_card_ro")],
+        [InlineKeyboardButton(text="✏️ تغییر شماره کارت", callback_data="admin_card_edit")],
+        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin")],
     ])
 
 
