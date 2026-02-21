@@ -388,6 +388,18 @@ def get_server_creation_steps():
     return ["name", "host", "api_port", "username", "password", "wg_interface", "wg_server_public_key", "wg_server_endpoint", "wg_server_port", "wg_client_network_base", "wg_client_dns", "capacity"]
 
 
+
+
+def get_plan_field_prompt(field: str) -> str:
+    prompts = {
+        "name": "📝 یک نام برای پلن خود انتخاب کنید:",
+        "days": "⏰ تعداد روز پلن را وارد کنید:",
+        "traffic": "📊 مقدار ترافیک پلن (گیگ) را وارد کنید:",
+        "price": "💰 قیمت پلن را به تومان وارد کنید:",
+        "description": "📄 توضیحات پلن را وارد کنید (اختیاری):",
+    }
+    return prompts.get(field, "لطفاً مقدار را وارد کنید:")
+
 def get_plan_creation_summary(data: dict) -> str:
     return (
         "➕ ایجاد پلن جدید\n\n"
