@@ -476,7 +476,7 @@ def delete_wireguard_peer(
                 pass
 
 
-def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None, ip_range_end: int = None) -> str:
+def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None, ip_range_end: int = None, excluded_last_octets: set | None = None) -> str:
     """
     Get next available IP from the database
     Range: by default 10-250 (skipping 1-9 and 251+)
@@ -494,6 +494,7 @@ def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None,
     
     logger.info(f"[Step 2] IP range: {start}-{end}")
     
+    excluded_last_octets = excluded_last_octets or set()
     db = SessionLocal()
     try:
         # Get all active configs from database
@@ -511,7 +512,10 @@ def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None,
                     except (ValueError, IndexError):
                         pass
         
-        logger.info(f"[Step 2] Used IPs in database: {sorted(used_ips)}")
+        if excluded_last_octets:
+            used_ips.update(excluded_last_octets)
+
+        logger.info(f"[Step 2] Used IPs in database/router: {sorted(used_ips)}")
         
         # Find next available IP in the specified range
         for i in range(start, end + 1):
@@ -528,6 +532,31 @@ def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None,
         raise
     finally:
         db.close()
+
+
+def get_used_ip_last_octets_from_mikrotik(api, network_base: str) -> set:
+    """Collect used IP last octets from MikroTik peers in the target network."""
+    used_ips = set()
+    base_parts = (network_base or "").rsplit('.', 1)
+    if len(base_parts) != 2:
+        return used_ips
+    prefix = base_parts[0] + "."
+
+    try:
+        peers = api.get_resource('/interface/wireguard/peers').get()
+    except Exception as e:
+        logger.warning(f"[Step 3] Failed to read peers from MikroTik for duplicate IP check: {e}")
+        return used_ips
+
+    for peer in peers:
+        allowed_address = (peer.get('allowed-address') or '').split('/')[0].strip()
+        if allowed_address.count('.') == 3 and allowed_address.startswith(prefix):
+            try:
+                used_ips.add(int(allowed_address.rsplit('.', 1)[-1]))
+            except (ValueError, IndexError):
+                continue
+
+    return used_ips
 
 
 def save_wireguard_config_to_db(
@@ -773,7 +802,7 @@ def create_wireguard_account(
         # Step 1: Generate keys
         public_key, private_key = generate_wireguard_keypair()
         
-        # Step 2: Get next available IP
+        # Step 2: Get next available IP from DB
         client_ip = get_next_available_ip_from_db(wg_client_network_base, wg_ip_range_start, wg_ip_range_end)
         
         if client_ip is None:
@@ -795,6 +824,28 @@ def create_wireguard_account(
             )
             api = pool.get_api()
             logger.info("[Step 3] ✓ Connected to MikroTik API successfully")
+
+            # Prevent duplicate IP assignment by checking current router peers.
+            router_used_ips = get_used_ip_last_octets_from_mikrotik(api, wg_client_network_base)
+            if client_ip and client_ip.count('.') == 3:
+                try:
+                    selected_last_octet = int(client_ip.rsplit('.', 1)[-1])
+                except (ValueError, IndexError):
+                    selected_last_octet = None
+
+                if selected_last_octet in router_used_ips:
+                    logger.warning(f"[Step 3] Selected IP {client_ip} already exists on MikroTik. Selecting a new IP...")
+                    client_ip = get_next_available_ip_from_db(
+                        wg_client_network_base,
+                        wg_ip_range_start,
+                        wg_ip_range_end,
+                        excluded_last_octets=router_used_ips,
+                    )
+                    if client_ip is None:
+                        error_msg = "No available IP in range after duplicate check"
+                        logger.error(f"[Step 3] ✗ {error_msg}")
+                        return {"success": False, "error": error_msg}
+                    logger.info(f"[Step 3] ✓ Re-selected IP after MikroTik duplicate check: {client_ip}")
         except Exception as e:
             error_msg = f"Failed to connect to MikroTik: {str(e)}"
             logger.error(f"[Step 3] ✗ {error_msg}")
