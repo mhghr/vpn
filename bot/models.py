@@ -122,6 +122,7 @@ class PaymentReceipt(Base):
     approved_at = Column(DateTime, nullable=True)
     approved_by = Column(String, nullable=True)
     server_id = Column(Integer, nullable=True)  # No FK until servers table exists
+    renew_config_id = Column(Integer, nullable=True)
     representative_id = Column(Integer, nullable=True)
 
 

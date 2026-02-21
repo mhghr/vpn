@@ -157,6 +157,29 @@ def format_traffic(total_bytes: int) -> str:
     return f"{gb:.2f} GB"
 
 
+def can_renew_config_now(config: WireGuardConfig, plan: Plan | None) -> bool:
+    """Return True when config is eligible for direct renew action."""
+    if not config or not config.plan_id:
+        return False
+
+    now = datetime.utcnow()
+    plan_traffic_bytes = int((plan.traffic_gb or 0) * (1024 ** 3)) if plan else 0
+    consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
+    expires_at = config.expires_at
+    if not expires_at and plan and plan.duration_days:
+        expires_at = config.created_at + timedelta(days=plan.duration_days)
+
+    is_expired_by_date = bool(expires_at and expires_at <= now)
+    is_expired_by_traffic = bool(plan_traffic_bytes and consumed_bytes >= plan_traffic_bytes)
+    is_disabled = config.status in ["expired", "revoked", "disabled"]
+    is_notified = bool(
+        config.low_traffic_alert_sent
+        or config.expiry_alert_sent
+        or config.threshold_alert_sent
+    )
+    return bool(is_expired_by_date or is_expired_by_traffic or is_disabled or is_notified)
+
+
 
 def calculate_org_user_financials(db, user_obj: User):
     data = _calculate_org_user_financials(db, user_obj)
@@ -508,4 +531,3 @@ WALLET_MESSAGE = "💰 شارژ کیف پول\n\nموجودی فعلی شما: {
 
 # Message handlers
 from aiogram import filters
-

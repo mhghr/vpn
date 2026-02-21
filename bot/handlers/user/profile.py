@@ -26,7 +26,18 @@ async def handle_user_profile_callbacks(callback: CallbackQuery, bot, data: str,
             db.close()
 
     elif data.startswith("cfg_renew_unavailable_"):
-        await callback.message.answer("ℹ️ گزینه تمدید زمانی فعال می‌شود که سرویس غیرفعال یا منقضی شده باشد.", parse_mode="HTML")
+        config_id = int(data.replace("cfg_renew_unavailable_", ""))
+        await callback.message.answer(
+            "ℹ️ اکانت شما هنوز تمام نشده است. با این حال می‌خواهید تمدید کنید؟",
+            reply_markup=get_renew_confirmation_keyboard(config_id),
+            parse_mode="HTML"
+        )
+
+    elif data == "cfg_renew_force_no":
+        await callback.message.answer("✅ عملیات تمدید لغو شد.", parse_mode="HTML")
+
+    elif data.startswith("cfg_renew_force_yes_"):
+        data = data.replace("cfg_renew_force_yes_", "cfg_renew_")
 
     elif data.startswith("cfg_renew_"):
         config_id = int(data.replace("cfg_renew_", ""))
@@ -57,6 +68,7 @@ async def handle_user_profile_callbacks(callback: CallbackQuery, bot, data: str,
                 "plan_name": plan.name,
                 "price": plan.price,
                 "renew_config_id": config.id,
+                "server_id": config.server_id,
             }
 
             msg = f"♻️ تمدید سرویس \"{plan.name}\"\n\n• حجم: {plan.traffic_gb} گیگ\n• مدت: {plan.duration_days} روز\n• قیمت: {plan.price} تومان\n\nروش پرداخت را انتخاب کنید:"

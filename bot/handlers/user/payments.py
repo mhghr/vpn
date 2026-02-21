@@ -98,6 +98,7 @@ async def handle_receipt_photo(message: Message):
             amount=(payment_info.get("amount") if is_wallet_topup else payment_info["price"]),
             payment_method=("wallet_topup" if is_wallet_topup else "card_to_card"),
             server_id=(None if is_wallet_topup else payment_info.get("server_id")),
+            renew_config_id=(None if is_wallet_topup else payment_info.get("renew_config_id")),
             receipt_file_id=file_id,
             status="pending"
         )

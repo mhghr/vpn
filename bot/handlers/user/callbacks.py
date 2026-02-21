@@ -163,17 +163,13 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
                 if plan:
                     plan_traffic_bytes = (plan.traffic_gb or 0) * (1024 ** 3)
 
-            consumed_bytes = config.cumulative_rx_bytes or 0
+            consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
             remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0) if plan_traffic_bytes else 0
             expires_at = config.expires_at
             if not expires_at and plan and plan.duration_days:
                 expires_at = config.created_at + timedelta(days=plan.duration_days)
 
-            now = datetime.utcnow()
-            is_expired_by_date = bool(expires_at and expires_at <= now)
-            is_expired_by_traffic = bool(plan_traffic_bytes and remaining_bytes <= 0)
-            is_disabled = config.status in ["expired", "revoked", "disabled"]
-            can_renew = bool(config.plan_id and (is_expired_by_date or is_expired_by_traffic or is_disabled))
+            can_renew = can_renew_config_now(config, plan)
 
             msg = (
                 "📋 جزئیات کانفیگ\n\n"

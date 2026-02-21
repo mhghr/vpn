@@ -364,6 +364,60 @@ def disable_wireguard_peer(
                 pass
 
 
+def reset_wireguard_peer_traffic(
+    mikrotik_host: str,
+    mikrotik_user: str,
+    mikrotik_pass: str,
+    mikrotik_port: int,
+    wg_interface: str,
+    client_ip: str,
+):
+    """Disable then enable a WireGuard peer to reset its counters on router side."""
+    if not ROUTEROS_API_AVAILABLE:
+        logger.warning("routeros_api unavailable; skipping peer reset")
+        return False
+
+    pool = None
+    try:
+        pool = RouterOsApiPool(
+            mikrotik_host,
+            username=mikrotik_user,
+            password=mikrotik_pass,
+            port=mikrotik_port,
+            plaintext_login=True
+        )
+        api = pool.get_api()
+        peers_resource = api.get_resource('/interface/wireguard/peers')
+        peers = peers_resource.get()
+
+        for peer in peers:
+            peer_interface = peer.get("interface")
+            if peer_interface and peer_interface != wg_interface:
+                continue
+
+            allowed_address = (peer.get("allowed-address") or "").split('/')[0].strip()
+            if allowed_address == client_ip:
+                peer_id = peer.get(".id")
+                if not peer_id:
+                    return False
+                peers_resource.set(**{".id": peer_id, "disabled": "yes"})
+                peers_resource.set(**{".id": peer_id, "disabled": "no"})
+                logger.info(f"Reset peer traffic counters for IP: {client_ip}")
+                return True
+
+        logger.warning(f"Peer not found for reset, IP: {client_ip}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to reset peer traffic: {e}")
+        return False
+    finally:
+        if pool:
+            try:
+                pool.disconnect()
+            except Exception:
+                pass
+
+
 def delete_wireguard_peer(
     mikrotik_host: str,
     mikrotik_user: str,

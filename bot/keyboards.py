@@ -163,7 +163,7 @@ def get_receipt_action_keyboard(receipt_id: int):
     ])
 
 
-def get_receipt_done_keyboard(status_text: str):
+def get_receipt_done_keyboard(status_text: str = "✅ انجام شد"):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=status_text, callback_data="receipt_done")]
     ])
@@ -277,6 +277,15 @@ def get_config_detail_keyboard(
 
     buttons.append([InlineKeyboardButton(text="🔙 بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_renew_confirmation_keyboard(config_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ بله، تمدید کن", callback_data=f"cfg_renew_force_yes_{config_id}"),
+            InlineKeyboardButton(text="❌ خیر", callback_data="cfg_renew_force_no"),
+        ]
+    ])
 
 
 def get_admin_user_configs_keyboard(user_id: int, configs: list):

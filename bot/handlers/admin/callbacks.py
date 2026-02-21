@@ -993,6 +993,77 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                     )
                     return True
 
+                if receipt.renew_config_id:
+                    renew_config = db.query(WireGuardConfig).filter(
+                        WireGuardConfig.id == receipt.renew_config_id,
+                        WireGuardConfig.user_telegram_id == receipt.user_telegram_id,
+                    ).first()
+                    plan = db.query(Plan).filter(Plan.id == receipt.plan_id).first() if receipt.plan_id else None
+                    if not renew_config or not plan:
+                        await callback.message.answer(
+                            "❌ کانفیگ/پلن تمدید یافت نشد.",
+                            reply_markup=get_receipt_done_keyboard("⚠️ بررسی دستی لازم است"),
+                            parse_mode="HTML"
+                        )
+                        return True
+
+                    server = db.query(Server).filter(Server.id == renew_config.server_id).first() if renew_config.server_id else None
+                    if not server:
+                        server = db.query(Server).filter(Server.id == receipt.server_id).first() if receipt.server_id else None
+                    if not server:
+                        available = get_available_servers_for_plan(db, plan.id)
+                        server = available[0] if available else None
+
+                    reset_ok = False
+                    if server:
+                        try:
+                            import wireguard
+                            reset_ok = wireguard.reset_wireguard_peer_traffic(
+                                mikrotik_host=server.host,
+                                mikrotik_user=server.username,
+                                mikrotik_pass=server.password,
+                                mikrotik_port=server.api_port,
+                                wg_interface=server.wg_interface,
+                                client_ip=renew_config.client_ip,
+                            )
+                        except Exception as e:
+                            print(f"Renew reset peer failed: {e}")
+
+                    renew_config.status = "active"
+                    renew_config.expires_at = datetime.utcnow() + timedelta(days=(plan.duration_days or 0))
+                    renew_config.cumulative_rx_bytes = 0
+                    renew_config.cumulative_tx_bytes = 0
+                    renew_config.last_rx_counter = 0
+                    renew_config.last_tx_counter = 0
+                    renew_config.counter_reset_flag = True
+                    renew_config.low_traffic_alert_sent = False
+                    renew_config.expiry_alert_sent = False
+                    renew_config.threshold_alert_sent = False
+                    db.commit()
+
+                    try:
+                        await callback.message.bot.send_message(
+                            chat_id=int(receipt.user_telegram_id),
+                            text=f"✅ سرویس شما با موفقیت تمدید شد.\n\n• پلن: {plan.name}\n• تاریخ انقضای جدید: {format_jalali_date(renew_config.expires_at)}",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        print(f"Error notifying user for renew approve: {e}")
+
+                    await callback.message.answer(
+                        (
+                            f"✅ پرداخت تمدید تایید شد.\n\n"
+                            f"• کاربر: {receipt.user_telegram_id}\n"
+                            f"• کانفیگ: {renew_config.client_ip}\n"
+                            f"• پلن: {plan.name}\n"
+                            f"• انقضای جدید: {format_jalali_date(renew_config.expires_at)}\n"
+                            f"• ریست کانتر روتر: {'✅ انجام شد' if reset_ok else '⚠️ انجام نشد (نیازمند بررسی دستی)'}"
+                        ),
+                        reply_markup=get_receipt_done_keyboard(),
+                        parse_mode="HTML"
+                    )
+                    return True
+
                 # Create WireGuard account
                 wg_created = False
                 client_ip = "N/A"
