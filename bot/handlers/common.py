@@ -232,7 +232,7 @@ def build_admin_user_info_message(db, user_obj: User) -> str:
         fz = calculate_org_user_financials(db, user_obj)
         msg += (
             f"\n\n🏢 اطلاعات مالی مشتری سازمانی:\n"
-            f"• مجموع ترافیک لینک‌های فعال: {fz['total_traffic_gb']:.2f} GB\n"
+            f"• مجموع ترافیک قابل‌فاکتور (فعال + حذف‌شده): {fz['total_traffic_gb']:.2f} GB\n"
             f"• هزینه هر گیگ: {fz['price_per_gb']:,} تومان\n"
             f"• مبلغ بدهکاری: {fz['debt_amount']:,} تومان\n"
             f"• زمان آخرین تسویه: {fz['last_settlement']}"

@@ -39,12 +39,16 @@ def calculate_org_user_financials(db, user_obj: User):
         WireGuardConfig.user_telegram_id == user_obj.telegram_id,
         WireGuardConfig.status == "active",
     ).all()
-    total_traffic_bytes = sum((cfg.cumulative_rx_bytes or 0) + (cfg.cumulative_tx_bytes or 0) for cfg in active_configs)
+    active_traffic_bytes = sum((cfg.cumulative_rx_bytes or 0) + (cfg.cumulative_tx_bytes or 0) for cfg in active_configs)
+    deleted_traffic_bytes = user_obj.org_deleted_traffic_bytes or 0
+    total_traffic_bytes = active_traffic_bytes + deleted_traffic_bytes
     total_traffic_gb = total_traffic_bytes / (1024 ** 3)
     price_per_gb = user_obj.org_price_per_gb or 0
     debt_amount = int(total_traffic_gb * price_per_gb)
     return {
         "active_configs": active_configs,
+        "active_traffic_gb": active_traffic_bytes / (1024 ** 3),
+        "deleted_traffic_gb": deleted_traffic_bytes / (1024 ** 3),
         "total_traffic_gb": total_traffic_gb,
         "price_per_gb": price_per_gb,
         "debt_amount": debt_amount,

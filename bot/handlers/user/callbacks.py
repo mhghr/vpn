@@ -256,6 +256,38 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
         await callback.answer("این بخش فقط جهت نمایش است.", show_alert=False)
 
 
+    elif data.startswith("cfg_delete_confirm_"):
+        config_id = int(data.replace("cfg_delete_confirm_", ""))
+        db = SessionLocal()
+        try:
+            cfg = db.query(WireGuardConfig).filter(WireGuardConfig.id == config_id, WireGuardConfig.user_telegram_id == str(user_id)).first()
+            if not cfg:
+                await callback.message.answer("❌ کانفیگ یافت نشد.", parse_mode="HTML")
+                return
+
+            consumed_bytes = (cfg.cumulative_rx_bytes or 0) + (cfg.cumulative_tx_bytes or 0)
+            consumed_gb = consumed_bytes / (1024 ** 3)
+
+            owner_user = db.query(User).filter(User.telegram_id == cfg.user_telegram_id).first()
+            if owner_user and owner_user.is_organization_customer and consumed_bytes > 0:
+                owner_user.org_deleted_traffic_bytes = (owner_user.org_deleted_traffic_bytes or 0) + consumed_bytes
+
+            db.delete(cfg)
+            db.commit()
+
+            if owner_user and owner_user.is_organization_customer:
+                await callback.message.answer(
+                    f"✅ لینک حذف شد و مقدار {consumed_gb:.2f} گیگ ترافیک این لینک در فاکتور لحاظ خواهد شد.",
+                    parse_mode="HTML"
+                )
+            else:
+                await callback.message.answer("✅ کانفیگ حذف شد.", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("cfg_delete_cancel_"):
+        await callback.message.answer("❎ حذف لینک لغو شد.", parse_mode="HTML")
+
     elif data.startswith("cfg_delete_"):
         config_id = int(data.replace("cfg_delete_", ""))
         db = SessionLocal()
@@ -264,9 +296,11 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
             if not cfg:
                 await callback.message.answer("❌ کانفیگ یافت نشد.", parse_mode="HTML")
                 return
-            db.delete(cfg)
-            db.commit()
-            await callback.message.answer("✅ کانفیگ حذف شد.", parse_mode="HTML")
+            await callback.message.answer(
+                "⚠️ مطمئن هستید که می‌خواهید این لینک را حذف کنید؟",
+                reply_markup=get_user_config_confirm_delete_keyboard(config_id),
+                parse_mode="HTML"
+            )
         finally:
             db.close()
 
@@ -287,7 +321,7 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
                 return
             financials = calculate_org_user_financials(db, owner_user)
             finance_text = (
-                f"📊 مجموع ترافیک لینک‌های فعال: {financials['total_traffic_gb']:.2f} GB\n"
+                f"📊 مجموع ترافیک قابل‌فاکتور (فعال + حذف‌شده): {financials['total_traffic_gb']:.2f} GB\n"
                 f"💰 هزینه هر گیگ: {financials['price_per_gb']:,} تومان\n"
                 f"🧾 مبلغ بدهکاری: {financials['debt_amount']:,} تومان\n"
                 f"🕓 زمان آخرین تسویه: {financials['last_settlement']}"
