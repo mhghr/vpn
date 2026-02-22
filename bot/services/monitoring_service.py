@@ -30,14 +30,14 @@ async def notify_plan_thresholds_worker(bot: Bot):
             now = datetime.now()
             configs = db.query(WireGuardConfig).filter(WireGuardConfig.status == "active").all()
             for config in configs:
-                if not config.plan_id:
-                    continue
-                plan = db.query(Plan).filter(Plan.id == config.plan_id).first()
-                if not plan or not plan.duration_days or not plan.traffic_gb:
+                plan = db.query(Plan).filter(Plan.id == config.plan_id).first() if config.plan_id else None
+                duration_days = config.duration_days if config.duration_days is not None else (plan.duration_days if plan else None)
+                traffic_limit_gb = config.traffic_limit_gb if config.traffic_limit_gb is not None else (plan.traffic_gb if plan else None)
+                if not duration_days and not traffic_limit_gb:
                     continue
 
-                expires_at = config.expires_at or (config.created_at + timedelta(days=plan.duration_days))
-                plan_traffic_bytes = plan.traffic_gb * (1024 ** 3)
+                expires_at = config.expires_at or (config.created_at + timedelta(days=(duration_days or 0)))
+                plan_traffic_bytes = (traffic_limit_gb or 0) * (1024 ** 3)
                 consumed_bytes = config.cumulative_rx_bytes or 0
                 remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0)
 
@@ -101,8 +101,9 @@ async def cleanup_expired_test_accounts_worker(bot: Bot):
 
             for config in configs:
                 expires_at = config.expires_at or (config.created_at + timedelta(days=test_plan.duration_days))
-                traffic_limit_bytes = (test_plan.traffic_gb or 0) * (1024 ** 3)
-                consumed_bytes = config.cumulative_rx_bytes or 0
+                traffic_limit_gb = config.traffic_limit_gb if config.traffic_limit_gb is not None else (test_plan.traffic_gb or 0)
+                traffic_limit_bytes = traffic_limit_gb * (1024 ** 3)
+                consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
                 is_expired = bool(expires_at and expires_at <= now)
                 is_exhausted = bool(traffic_limit_bytes and consumed_bytes >= traffic_limit_bytes)
 

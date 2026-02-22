@@ -108,19 +108,62 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
     elif data == "configs":
         db = SessionLocal()
         try:
+            owner = db.query(User).filter(User.telegram_id == str(user_id)).first()
             configs = db.query(WireGuardConfig).filter(
                 WireGuardConfig.user_telegram_id == str(user_id)
             ).order_by(WireGuardConfig.created_at.desc()).all()
             if configs:
                 await callback.message.answer(
                     "🔗 کانفیگ های من\n\nبرای مشاهده جزئیات، کانفیگ موردنظر را انتخاب کنید:",
-                    reply_markup=get_configs_keyboard(configs),
+                    reply_markup=get_configs_keyboard(configs, is_org_customer=bool(owner and owner.is_organization_customer)),
                     parse_mode="HTML"
                 )
             else:
                 await callback.message.answer(MY_CONFIGS_MESSAGE, parse_mode="HTML")
         finally:
             db.close()
+
+
+    elif data == "org_create_account":
+        db = SessionLocal()
+        try:
+            owner = db.query(User).filter(User.telegram_id == str(user_id)).first()
+            if not owner or not owner.is_organization_customer:
+                await callback.answer("فقط برای مشتری سازمانی فعال است.", show_alert=True)
+                return
+            admin_create_account_state[user_id] = {"step": "name", "scope": "org"}
+            await callback.message.answer("📝 ساخت اکانت سازمانی\n\nلطفاً یک نام برای کانفیگ وارد کنید:", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data.startswith("org_create_acc_server_"):
+        server_id = int(data.split("_")[-1])
+        state = admin_create_account_state.get(user_id)
+        if not state or state.get("step") != "server" or state.get("scope") != "org":
+            await callback.answer("فرایند ساخت اکانت نامعتبر است.", show_alert=True)
+            return
+        db = SessionLocal()
+        try:
+            owner = db.query(User).filter(User.telegram_id == str(user_id)).first()
+            server = db.query(Server).filter(Server.id == server_id, Server.is_active == True).first()
+            if not owner or not owner.is_organization_customer or not server:
+                await callback.message.answer("❌ سرور/کاربر نامعتبر است.", parse_mode="HTML")
+                return
+            import wireguard
+            days = int(state.get("days") or 0)
+            traffic = float(state.get("traffic") or 0)
+            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), None, "بدون پلن", days, traffic_limit_gb=traffic))
+            if wg_result.get("success"):
+                await callback.message.answer(f"✅ اکانت سازمانی روی سرور {server.name} ایجاد شد.", parse_mode="HTML")
+                if wg_result.get("config"):
+                    await send_wireguard_config_file(callback.message, wg_result.get("config"), caption="📄 فایل کانفیگ WireGuard")
+                if wg_result.get("qr_code"):
+                    await send_qr_code(callback.message, wg_result.get("qr_code"), f"QR Code - {state.get('name') or 'Org'}")
+            else:
+                await callback.message.answer(f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}", parse_mode="HTML")
+        finally:
+            db.close()
+            admin_create_account_state.pop(user_id, None)
 
     elif data.startswith("cfg_view_"):
         config_id = data.replace("cfg_view_", "")
@@ -141,32 +184,32 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
                 await callback.message.answer("❌ شما دسترسی ندارید.", parse_mode="HTML")
                 return
 
-            plan = None
-            plan_traffic_bytes = 0
-            if config.plan_id:
-                plan = db.query(Plan).filter(Plan.id == config.plan_id).first()
-                if plan:
-                    plan_traffic_bytes = (plan.traffic_gb or 0) * (1024 ** 3)
-
-            consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
-            remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0) if plan_traffic_bytes else 0
-            expires_at = config.expires_at
-            if not expires_at and plan and plan.duration_days:
-                expires_at = config.created_at + timedelta(days=plan.duration_days)
+            plan = db.query(Plan).filter(Plan.id == config.plan_id).first() if config.plan_id else None
+            plan_traffic_bytes, remaining_bytes = get_config_remaining_bytes(config, plan)
+            consumed_bytes = get_config_consumed_bytes(config)
+            expires_at = get_config_expires_at(config, plan)
+            duration_days, traffic_limit_gb = get_config_limits(config, plan)
 
             can_renew = can_renew_config_now(config, plan)
+            server = db.query(Server).filter(Server.id == config.server_id).first() if config.server_id else None
+            remaining_days = "نامشخص"
+            if expires_at:
+                remaining_days = str(max(int((expires_at - datetime.utcnow()).total_seconds() // 86400), 0))
 
             msg = (
                 "📋 جزئیات کانفیگ\n\n"
-                f"• پلن: {config.plan_name or 'نامشخص'}\n"
+                f"• پلن: {config.plan_name or 'بدون پلن'}\n"
+                f"• سرور: {server.name if server else '-'}\n"
                 f"• آی پی: {config.client_ip}\n"
-                f"• تاریخ خرید: {format_jalali_date(config.created_at)}\n"
+                f"• زمان ایجاد: {format_jalali_date(config.created_at)}\n"
+                f"• آخرین تمدید: {format_jalali_date(config.renewed_at)}\n"
+                f"• تعداد روز: {duration_days if duration_days is not None else 'نامشخص'}\n"
+                f"• ترافیک کل: {traffic_limit_gb if traffic_limit_gb is not None else 'نامشخص'} گیگ\n"
                 f"• تاریخ انقضا: {format_jalali_date(expires_at)}\n"
-                f"• وضعیت: {'🔴 غیرفعال' if can_renew else '🟢 فعال'}\n"
-                f"• حجم مصرفی: {format_traffic_size(consumed_bytes)}\n"
-                f"• حجم دریافتی (RX): {format_traffic_size(config.cumulative_rx_bytes or 0)}\n"
-                f"• حجم ارسالی (TX): {format_traffic_size(config.cumulative_tx_bytes or 0)}\n"
-                f"• حجم باقی‌مانده: {format_traffic_size(remaining_bytes) if plan_traffic_bytes else 'نامحدود/نامشخص'}"
+                f"• وضعیت: {'🔴 غیرفعال' if config.status != 'active' else '🟢 فعال'}\n"
+                f"• ترافیک مصرفی: {format_traffic_size(consumed_bytes)}\n"
+                f"• ترافیک باقی‌مانده: {format_traffic_size(remaining_bytes) if plan_traffic_bytes else 'نامحدود/نامشخص'}\n"
+                f"• روز باقی‌مانده: {remaining_days}"
             )
             owner_user = db.query(User).filter(User.telegram_id == config.user_telegram_id).first()
             is_org_customer = bool(owner_user and owner_user.is_organization_customer)
@@ -184,6 +227,21 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
 
     elif data == "admin_user_info_ro":
         await callback.answer("این بخش فقط جهت نمایش است.", show_alert=False)
+
+
+    elif data.startswith("cfg_delete_"):
+        config_id = int(data.replace("cfg_delete_", ""))
+        db = SessionLocal()
+        try:
+            cfg = db.query(WireGuardConfig).filter(WireGuardConfig.id == config_id, WireGuardConfig.user_telegram_id == str(user_id)).first()
+            if not cfg:
+                await callback.message.answer("❌ کانفیگ یافت نشد.", parse_mode="HTML")
+                return
+            db.delete(cfg)
+            db.commit()
+            await callback.message.answer("✅ کانفیگ حذف شد.", parse_mode="HTML")
+        finally:
+            db.close()
 
     elif data.startswith("cfg_financial_"):
         config_id = int(data.replace("cfg_financial_", ""))

@@ -267,14 +267,14 @@ def disable_expired_or_exhausted_configs(
         now = datetime.utcnow()
         targets = []
         for config in active_configs:
-            if not config.plan_id:
-                continue
-            plan = db.query(Plan).filter(Plan.id == config.plan_id).first()
-            if not plan or not plan.duration_days or not plan.traffic_gb:
+            plan = db.query(Plan).filter(Plan.id == config.plan_id).first() if config.plan_id else None
+            duration_days = config.duration_days if config.duration_days is not None else (plan.duration_days if plan else None)
+            traffic_limit_gb = config.traffic_limit_gb if config.traffic_limit_gb is not None else (plan.traffic_gb if plan else None)
+            if not duration_days and not traffic_limit_gb:
                 continue
 
-            expires_at = config.expires_at or (config.created_at + timedelta(days=plan.duration_days))
-            plan_traffic_bytes = plan.traffic_gb * (1024 ** 3)
+            expires_at = config.expires_at or (config.created_at + timedelta(days=duration_days or 0))
+            plan_traffic_bytes = (traffic_limit_gb or 0) * (1024 ** 3)
             consumed_bytes = config.cumulative_rx_bytes or 0
             exhausted_traffic = consumed_bytes >= plan_traffic_bytes
             expired_time = expires_at <= now
@@ -577,6 +577,7 @@ def save_wireguard_config_to_db(
     wg_server_port: int = None,
     wg_client_dns: str = None,
     duration_days: int = None,
+    traffic_limit_gb: float = None,
     server_id: int = None
 ) -> WireGuardConfig:
     """Save WireGuard config to database"""
@@ -602,6 +603,9 @@ def save_wireguard_config_to_db(
             wg_client_dns=wg_client_dns,
             status="active",
             expires_at=expires_at,
+            duration_days=duration_days,
+            traffic_limit_gb=traffic_limit_gb,
+            renewed_at=datetime.utcnow(),
             server_id=server_id
         )
         
@@ -761,6 +765,7 @@ def create_wireguard_account(
     plan_id: int = None,
     plan_name: str = None,
     duration_days: int = None,
+    traffic_limit_gb: float = None,
     server_id: int = None
 ) -> dict:
     """
@@ -944,6 +949,7 @@ def create_wireguard_account(
             wg_server_port=wg_server_port,
             wg_client_dns=wg_client_dns,
             duration_days=duration_days,
+            traffic_limit_gb=traffic_limit_gb,
             server_id=server_id
         )
         

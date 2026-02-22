@@ -60,3 +60,23 @@ sudo bash deploy/update_from_git.sh main
 - `main.py` را دوباره روی حالت webhook ست می‌کند
 - وابستگی‌های پایتون را نصب/اعتبارسنجی می‌کند
 - سرویس systemd ربات را ری‌استارت می‌کند
+
+
+### نکته مهم درباره دیتابیس در آپدیت
+
+اسکریپت `update_from_git.sh` دیتابیس را حذف نمی‌کند و دستور `drop/truncate` اجرا نمی‌کند؛
+فقط کد را آپدیت و سرویس را ری‌استارت می‌کند.
+
+در اولین اجرای بات بعد از آپدیت، `init_db()` فقط مایگریشن‌های غیرتخریبی (مثل `ADD COLUMN IF NOT EXISTS`) را اعمال می‌کند.
+
+با این حال برای امنیت بیشتر، قبل از هر آپدیت یک بکاپ بگیرید:
+
+```bash
+pg_dump -Fc -d "<DATABASE_URL>" -f /root/myvpn_$(date +%F_%H-%M).dump
+```
+
+در صورت نیاز به بازیابی:
+
+```bash
+pg_restore -d "<DATABASE_URL>" /root/myvpn_YYYY-MM-DD_HH-MM.dump
+```
