@@ -34,26 +34,6 @@ ADMIN_IDS = [os.getenv("ADMIN_ID", "6245412936")]
 CARD_NUMBER = os.getenv("CARD_NUMBER", "1234-5678-9012-3456")
 CARD_HOLDER = os.getenv("CARD_HOLDER", "نام صاحب کارت")
 
-# ==================== MikroTik Configuration ====================
-# MikroTik RouterOS connection details for WireGuard management
-MIKROTIK_HOST = os.getenv("MIKROTIK_HOST", "192.168.1.1")
-MIKROTIK_USER = os.getenv("MIKROTIK_USER", "admin")
-MIKROTIK_PASS = os.getenv("MIKROTIK_PASS", "password")
-MIKROTIK_PORT = int(os.getenv("MIKROTIK_PORT", "22"))
-
-# ==================== WireGuard Server Configuration ====================
-WG_INTERFACE = os.getenv("WIREGUARD_INTERFACE_NAME", "wg-user")
-WG_SERVER_PUBLIC_KEY = os.getenv("WIREGUARD_PUBLIC_KEY", "")
-WG_SERVER_ENDPOINT = os.getenv("WIREGUARD_SERVER_ENDPOINT", "")
-WG_SERVER_PORT = int(os.getenv("WIREGUARD_SERVER_PORT", "51820"))
-
-# IP range for client addresses (e.g., 192.168.30.0/24)
-ip_range = os.getenv("WIREGUARD_IP_RANGE", "192.168.30.0/24").split('/')[0]
-WG_CLIENT_NETWORK_BASE = ip_range.rsplit('.', 1)[0] + ".0"  # e.g., 192.168.30.0
-
-WG_CLIENT_DNS = os.getenv("WIREGUARD_DNS", "8.8.8.8,1.0.0.1")
-
-
 # ==================== Representative Bot Configuration ====================
 AGENT_BOT_DOCKER_IMAGE = os.getenv("AGENT_BOT_DOCKER_IMAGE", "vpn-agent-bot:latest")
 AGENT_BOT_CONTAINER_PREFIX = os.getenv("AGENT_BOT_CONTAINER_PREFIX", "vpn_agent")

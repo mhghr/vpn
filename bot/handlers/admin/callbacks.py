@@ -427,14 +427,16 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
             # Disable in MikroTik
             try:
                 import wireguard
-                wireguard.disable_wireguard_peer(
-                    mikrotik_host=MIKROTIK_HOST,
-                    mikrotik_user=MIKROTIK_USER,
-                    mikrotik_pass=MIKROTIK_PASS,
-                    mikrotik_port=MIKROTIK_PORT,
-                    wg_interface=WG_INTERFACE,
-                    client_ip=config.client_ip
-                )
+                server = db.query(Server).filter(Server.id == config.server_id, Server.is_active == True).first()
+                if server:
+                    wireguard.disable_wireguard_peer(
+                        mikrotik_host=server.host,
+                        mikrotik_user=server.username,
+                        mikrotik_pass=server.password,
+                        mikrotik_port=server.api_port,
+                        wg_interface=server.wg_interface,
+                        client_ip=config.client_ip
+                    )
             except Exception as e:
                 print(f"MikroTik disable error: {e}")
 
@@ -496,14 +498,16 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
             # Delete from MikroTik
             try:
                 import wireguard
-                wireguard.delete_wireguard_peer(
-                    mikrotik_host=MIKROTIK_HOST,
-                    mikrotik_user=MIKROTIK_USER,
-                    mikrotik_pass=MIKROTIK_PASS,
-                    mikrotik_port=MIKROTIK_PORT,
-                    wg_interface=WG_INTERFACE,
-                    client_ip=client_ip
-                )
+                server = db.query(Server).filter(Server.id == config.server_id, Server.is_active == True).first()
+                if server:
+                    wireguard.delete_wireguard_peer(
+                        mikrotik_host=server.host,
+                        mikrotik_user=server.username,
+                        mikrotik_pass=server.password,
+                        mikrotik_port=server.api_port,
+                        wg_interface=server.wg_interface,
+                        client_ip=client_ip
+                    )
             except Exception as e:
                 print(f"MikroTik delete error: {e}")
 

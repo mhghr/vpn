@@ -8,10 +8,6 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from config import (
-    MIKROTIK_HOST,
-    MIKROTIK_PASS,
-    MIKROTIK_PORT,
-    MIKROTIK_USER,
     TOKEN,
     WEBHOOK_BASE_URL,
     WEBHOOK_DROP_PENDING_UPDATES,
@@ -19,11 +15,10 @@ from config import (
     WEBHOOK_PATH,
     WEBHOOK_PORT,
     WEBHOOK_SECRET_TOKEN,
-    WG_INTERFACE,
 )
 from database import SessionLocal, init_db
 from handlers import dp
-from models import Plan, WireGuardConfig
+from models import Plan, Server, ServiceType, WireGuardConfig
 from wireguard import (
     delete_wireguard_peer,
     disable_expired_or_exhausted_configs,
@@ -38,6 +33,16 @@ bot = Bot(token=TOKEN)
 ONE_GB_IN_BYTES = 1 * (1024 ** 3)
 TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
 background_tasks = []
+
+
+def _get_wireguard_servers(db):
+    wireguard_type = db.query(ServiceType).filter(ServiceType.code == "wireguard").first()
+    if not wireguard_type:
+        return []
+    return db.query(Server).filter(
+        Server.service_type_id == wireguard_type.id,
+        Server.is_active == True,
+    ).all()
 
 
 def build_webhook_url() -> str:
@@ -106,14 +111,16 @@ async def cleanup_expired_test_accounts_worker():
                 if not ((expires_at and expires_at <= now) or (traffic_limit_bytes and consumed_bytes >= traffic_limit_bytes)):
                     continue
                 try:
-                    delete_wireguard_peer(
-                        mikrotik_host=MIKROTIK_HOST,
-                        mikrotik_user=MIKROTIK_USER,
-                        mikrotik_pass=MIKROTIK_PASS,
-                        mikrotik_port=MIKROTIK_PORT,
-                        wg_interface=WG_INTERFACE,
-                        client_ip=config.client_ip,
-                    )
+                    server = db.query(Server).filter(Server.id == config.server_id, Server.is_active == True).first()
+                    if server:
+                        delete_wireguard_peer(
+                            mikrotik_host=server.host,
+                            mikrotik_user=server.username,
+                            mikrotik_pass=server.password,
+                            mikrotik_port=server.api_port,
+                            wg_interface=server.wg_interface,
+                            client_ip=config.client_ip,
+                        )
                 except Exception:
                     pass
                 user_tg_id = config.user_telegram_id
@@ -132,23 +139,28 @@ async def cleanup_expired_test_accounts_worker():
 
 async def usage_sync_worker():
     while True:
+        db = SessionLocal()
         try:
-            sync_wireguard_usage_counters(
-                mikrotik_host=MIKROTIK_HOST,
-                mikrotik_user=MIKROTIK_USER,
-                mikrotik_pass=MIKROTIK_PASS,
-                mikrotik_port=MIKROTIK_PORT,
-                wg_interface=WG_INTERFACE,
-            )
-            disable_expired_or_exhausted_configs(
-                mikrotik_host=MIKROTIK_HOST,
-                mikrotik_user=MIKROTIK_USER,
-                mikrotik_pass=MIKROTIK_PASS,
-                mikrotik_port=MIKROTIK_PORT,
-                wg_interface=WG_INTERFACE,
-            )
+            servers = _get_wireguard_servers(db)
+            for server in servers:
+                sync_wireguard_usage_counters(
+                    mikrotik_host=server.host,
+                    mikrotik_user=server.username,
+                    mikrotik_pass=server.password,
+                    mikrotik_port=server.api_port,
+                    wg_interface=server.wg_interface,
+                )
+                disable_expired_or_exhausted_configs(
+                    mikrotik_host=server.host,
+                    mikrotik_user=server.username,
+                    mikrotik_pass=server.password,
+                    mikrotik_port=server.api_port,
+                    wg_interface=server.wg_interface,
+                )
         except Exception:
             pass
+        finally:
+            db.close()
         await asyncio.sleep(180)
 
 
