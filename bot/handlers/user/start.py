@@ -10,15 +10,21 @@ async def start_handler(message: Message, bot):
     try:
         is_member = await check_channel_member(bot, user_id, CHANNEL_ID)
         if is_member:
-            db_user = get_or_create_user(db, str(user_id), user.username, user.first_name, user.last_name)
+            db_user, is_new_user = get_or_create_user(
+                db,
+                str(user_id),
+                user.username,
+                user.first_name,
+                user.last_name,
+                return_created=True,
+            )
             if db_user.is_blocked:
                 await message.answer("⛔ حساب شما توسط ادمین مسدود شده است.", parse_mode="HTML")
                 return
-            was_member = db_user.is_member
             db_user.is_member = True
             db.commit()
             await message.answer(WELCOME_MESSAGE, reply_markup=get_main_keyboard(db_user.is_admin), parse_mode="HTML")
-            if not was_member:
+            if is_new_user:
                 await message.answer("🎉 خوش آمدید! عضویت شما در کانال تایید شد.", parse_mode="HTML")
                 for admin_id in ADMIN_IDS:
                     try:
@@ -97,9 +103,10 @@ async def handle_user_menu_buttons(message: Message):
     if text == "🔗 کانفیگ‌های من":
         db = SessionLocal()
         try:
+            owner = db.query(User).filter(User.telegram_id == str(user_id)).first()
             configs = db.query(WireGuardConfig).filter(WireGuardConfig.user_telegram_id == str(user_id)).order_by(WireGuardConfig.created_at.desc()).all()
             if configs:
-                await message.answer("🔗 کانفیگ های من\n\nبرای مشاهده جزئیات، کانفیگ موردنظر را انتخاب کنید:", reply_markup=get_configs_keyboard(configs), parse_mode="HTML")
+                await message.answer("🔗 کانفیگ های من\n\nبرای مشاهده جزئیات، کانفیگ موردنظر را انتخاب کنید:", reply_markup=get_configs_keyboard(configs, is_org_customer=bool(owner and owner.is_organization_customer)), parse_mode="HTML")
             else:
                 await message.answer(MY_CONFIGS_MESSAGE, parse_mode="HTML")
         finally:
@@ -126,4 +133,3 @@ async def handle_user_menu_buttons(message: Message):
     if text == "📚 آموزش اتصال":
         await message.answer("📚 لیست آموزش‌ها:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📚 آموزش‌ها", callback_data="user_tutorials")]]), parse_mode="HTML")
         return
-

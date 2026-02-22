@@ -51,7 +51,24 @@ def init_db():
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS low_traffic_alert_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS expiry_alert_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS threshold_alert_sent BOOLEAN DEFAULT FALSE"))
-        
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS duration_days INTEGER"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS traffic_limit_gb DOUBLE PRECISION"))
+        conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS renewed_at TIMESTAMP"))
+
+        # Backfill limits from linked plans when missing
+        conn.execute(text("""
+            UPDATE wireguard_configs wc
+            SET duration_days = p.duration_days
+            FROM plans p
+            WHERE wc.plan_id = p.id AND wc.duration_days IS NULL
+        """))
+        conn.execute(text("""
+            UPDATE wireguard_configs wc
+            SET traffic_limit_gb = p.traffic_gb
+            FROM plans p
+            WHERE wc.plan_id = p.id AND wc.traffic_limit_gb IS NULL
+        """))
+
         # Add server_id column if it doesn't exist (for FK to servers table)
         conn.execute(text("ALTER TABLE wireguard_configs ADD COLUMN IF NOT EXISTS server_id INTEGER"))
 

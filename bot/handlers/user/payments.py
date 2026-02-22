@@ -64,7 +64,7 @@ async def handle_wallet_topup_amount(message: Message):
 
 
 # Receipt photo handler
-@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") in ["card_to_card", "wallet_topup"])
+@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in user_payment_state and user_payment_state.get(message.from_user.id, {}).get("method") in ["card_to_card", "wallet_topup", "org_settlement"])
 async def handle_receipt_photo(message: Message):
     user_id = message.from_user.id
     
@@ -73,9 +73,9 @@ async def handle_receipt_photo(message: Message):
         return
     
     payment_info = user_payment_state[user_id]
-    if payment_info.get("method") not in ["card_to_card", "wallet_topup"]:
+    if payment_info.get("method") not in ["card_to_card", "wallet_topup", "org_settlement"]:
         return
-    if payment_info.get("method") == "wallet_topup" and payment_info.get("step") != "receipt_upload":
+    if payment_info.get("method") in ["wallet_topup", "org_settlement"] and payment_info.get("step") != "receipt_upload":
         return
     
     # Check if message has a photo
@@ -90,15 +90,17 @@ async def handle_receipt_photo(message: Message):
     # Save receipt to database
     db = SessionLocal()
     try:
-        is_wallet_topup = payment_info.get("method") == "wallet_topup"
+        method = payment_info.get("method")
+        is_wallet_topup = method == "wallet_topup"
+        is_org_settlement = method == "org_settlement"
         receipt = PaymentReceipt(
             user_telegram_id=str(user_id),
-            plan_id=(None if is_wallet_topup else payment_info["plan_id"]),
-            plan_name=("شارژ کیف پول" if is_wallet_topup else payment_info["plan_name"]),
-            amount=(payment_info.get("amount") if is_wallet_topup else payment_info["price"]),
-            payment_method=("wallet_topup" if is_wallet_topup else "card_to_card"),
-            server_id=(None if is_wallet_topup else payment_info.get("server_id")),
-            renew_config_id=(None if is_wallet_topup else payment_info.get("renew_config_id")),
+            plan_id=(None if (is_wallet_topup or is_org_settlement) else payment_info["plan_id"]),
+            plan_name=("شارژ کیف پول" if is_wallet_topup else ("تسویه سازمانی" if is_org_settlement else payment_info["plan_name"])),
+            amount=(payment_info.get("amount") if (is_wallet_topup or is_org_settlement) else payment_info["price"]),
+            payment_method=("wallet_topup" if is_wallet_topup else ("org_settlement" if is_org_settlement else "card_to_card")),
+            server_id=(None if (is_wallet_topup or is_org_settlement) else payment_info.get("server_id")),
+            renew_config_id=(None if (is_wallet_topup or is_org_settlement) else payment_info.get("renew_config_id")),
             receipt_file_id=file_id,
             status="pending"
         )
@@ -118,7 +120,7 @@ async def handle_receipt_photo(message: Message):
         # Send confirmation to user
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await message.answer(
-            "سپاس از اعتماد شما . پس از تایید مبلغ مورد نظر به اعتبار شما اضافه خواهد شد ." if payment_info.get("method") == "wallet_topup" else "✅ فیش پرداخت دریافت شد!\n\n⏰ لطفاً منتظر تایید پرداخت توسط مدیریت باشید.",
+            "سپاس از اعتماد شما . پس از تایید مبلغ مورد نظر اعمال خواهد شد." if payment_info.get("method") in ["wallet_topup", "org_settlement"] else "✅ فیش پرداخت دریافت شد!\n\n⏰ لطفاً منتظر تایید پرداخت توسط مدیریت باشید.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")]
             ]),
@@ -138,6 +140,8 @@ async def handle_receipt_photo(message: Message):
                 # Send photo with user info in caption
                 if payment_info.get("method") == "wallet_topup":
                     caption_text = f"💳 درخواست شارژ کیف پول\n\n👤 اطلاعات کاربر:\n• نام: {user_display_name}\n• آیدی: {user_id}\n• نام کاربری: {user_username}\n\n💰 اطلاعات پرداخت:\n• نوع: شارژ کیف پول\n• مبلغ: {payment_info.get('amount', 0)} تومان\n• روش پرداخت: کارت به کارت"
+                elif payment_info.get("method") == "org_settlement":
+                    caption_text = f"💼 درخواست تسویه مالی سازمانی\n\n👤 اطلاعات کاربر:\n• نام: {user_display_name}\n• آیدی: {user_id}\n• نام کاربری: {user_username}\n\n💰 اطلاعات پرداخت:\n• نوع: تسویه سازمانی\n• مبلغ: {payment_info.get('amount', 0)} تومان\n• روش پرداخت: کارت به کارت"
                 else:
                     caption_text = f"💳 درخواست تایید پرداخت جدید\n\n👤 اطلاعات کاربر:\n• نام: {user_display_name}\n• آیدی: {user_id}\n• نام کاربری: {user_username}\n\n💰 اطلاعات پرداخت:\n• پلن: {payment_info['plan_name']}\n• مبلغ: {payment_info['price']} تومان\n• روش پرداخت: کارت به کارت"
                 await message.bot.send_photo(
