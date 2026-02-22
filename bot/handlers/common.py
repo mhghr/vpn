@@ -326,7 +326,7 @@ def parse_ip_range(input_str: str) -> dict:
                 start_parts = start_ip.split('.')
                 if len(start_parts) != 4:
                     return None
-                base = '.'.join(start_parts[:3])
+                base_prefix = '.'.join(start_parts[:3])
                 start_last = int(start_parts[3])
 
                 # Parse end IP - could be full IP or just last octet
@@ -336,7 +336,7 @@ def parse_ip_range(input_str: str) -> dict:
                     if len(end_parts) != 4:
                         return None
                     end_base = '.'.join(end_parts[:3])
-                    if end_base != base:
+                    if end_base != base_prefix:
                         return None
                     end_last = int(end_parts[3])
                 else:
@@ -348,9 +348,11 @@ def parse_ip_range(input_str: str) -> dict:
                     return None
 
                 return {
-                    'base_ip': base,
+                    # Persist as full network-base IP to keep octets intact later
+                    # (e.g. 192.168.30.0 instead of 192.168.30)
+                    'base_ip': f"{base_prefix}.0",
                     'start_ip': start_ip,
-                    'end_ip': f"{base}.{end_last}",
+                    'end_ip': f"{base_prefix}.{end_last}",
                     'cidr': None,
                     'is_range': True,
                     'start_last': start_last,
