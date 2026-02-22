@@ -319,6 +319,15 @@ def get_config_detail_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_user_config_confirm_delete_keyboard(config_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ بله، حذف کن", callback_data=f"cfg_delete_confirm_{config_id}"),
+            InlineKeyboardButton(text="❌ خیر", callback_data=f"cfg_delete_cancel_{config_id}"),
+        ]
+    ])
+
+
 def get_renew_confirmation_keyboard(config_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [

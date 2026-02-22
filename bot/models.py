@@ -21,6 +21,7 @@ class User(Base):
     is_organization_customer = Column(Boolean, default=False)
     org_price_per_gb = Column(Integer, default=3000)
     org_last_settlement_at = Column(DateTime, nullable=True)
+    org_deleted_traffic_bytes = Column(BigInteger, default=0)
     wallet_balance = Column(Integer, default=0)
     has_used_test_account = Column(Boolean, default=False)
     representative_id = Column(Integer, nullable=True)

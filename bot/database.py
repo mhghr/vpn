@@ -78,6 +78,7 @@ def init_db():
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_organization_customer BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_price_per_gb INTEGER DEFAULT 3000"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_last_settlement_at TIMESTAMP"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_deleted_traffic_bytes BIGINT DEFAULT 0"))
 
         # Plan columns
         try:

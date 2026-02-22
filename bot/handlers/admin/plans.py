@@ -97,7 +97,17 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
             traffic = float(state.get("traffic") or 0)
             owner_tg = str(user_id)
             import wireguard
-            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, owner_tg, None, account_name, days, traffic_limit_gb=traffic))
+            wg_result = wireguard.create_wireguard_account(
+                **build_wg_kwargs(
+                    server,
+                    owner_tg,
+                    None,
+                    account_name,
+                    days,
+                    traffic_limit_gb=traffic,
+                    peer_name_prefix=account_name,
+                )
+            )
             if wg_result.get("success"):
                 await callback.message.answer(f"✅ اکانت دلخواه روی سرور {server.name} ایجاد شد.", parse_mode="HTML")
                 if wg_result.get("config"):

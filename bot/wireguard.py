@@ -106,7 +106,7 @@ def format_endpoint_host(host: str):
     return host
 
 
-def build_peer_comment(user_telegram_id: str, client_ip: str, legacy: bool = False) -> str:
+def build_peer_comment(user_telegram_id: str, client_ip: str, legacy: bool = False, name_prefix: str = None) -> str:
     """Build MikroTik peer comment from user id and client IP."""
     ip_parts = (client_ip or "").split(".")
     ip_suffix = ""
@@ -122,7 +122,14 @@ def build_peer_comment(user_telegram_id: str, client_ip: str, legacy: bool = Fal
         last_octet = client_ip.rsplit('.', 1)[-1] if client_ip and '.' in client_ip else client_ip
         return f"{user_telegram_id}-{last_octet}" if last_octet else str(user_telegram_id)
 
-    # Requested format: <user_id>-3020 for client IP like 192.168.30.20
+    if name_prefix:
+        safe_prefix = "-".join((name_prefix or "").split())
+        last_two_octets = "-".join(ip_parts[-2:]) if len(ip_parts) >= 2 else ip_suffix
+        if last_two_octets:
+            return f"{safe_prefix}-{user_telegram_id}-{last_two_octets}"
+        return f"{safe_prefix}-{user_telegram_id}"
+
+    # Default format: <user_id>-3020 for client IP like 192.168.30.20
     return f"{user_telegram_id}-{ip_suffix}" if ip_suffix else str(user_telegram_id)
 
 
@@ -766,7 +773,8 @@ def create_wireguard_account(
     plan_name: str = None,
     duration_days: int = None,
     traffic_limit_gb: float = None,
-    server_id: int = None
+    server_id: int = None,
+    peer_name_prefix: str = None,
 ) -> dict:
     """
     Create a WireGuard account on MikroTik using RouterOS API
@@ -909,7 +917,7 @@ def create_wireguard_account(
         # Step 5: Add peer to MikroTik
         logger.info("[Step 5] Adding peer to MikroTik...")
         try:
-            peer_name = build_peer_comment(user_telegram_id, client_ip)
+            peer_name = build_peer_comment(user_telegram_id, client_ip, name_prefix=peer_name_prefix)
             
             peer_data = {
                 'interface': wg_interface,

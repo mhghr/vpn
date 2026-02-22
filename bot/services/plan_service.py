@@ -76,7 +76,15 @@ def get_available_servers_for_plan(db, plan_id: int):
     return [srv for srv in servers if (srv.capacity or 0) <= 0 or get_server_active_config_count(db, srv.id) < (srv.capacity or 0)]
 
 
-def build_wg_kwargs(server: Server, user_id: str, plan, plan_name: str, duration_days: int, traffic_limit_gb: float = None):
+def build_wg_kwargs(
+    server: Server,
+    user_id: str,
+    plan,
+    plan_name: str,
+    duration_days: int,
+    traffic_limit_gb: float = None,
+    peer_name_prefix: str = None,
+):
     network_base, ip_range_start, ip_range_end = _normalize_ip_pool(server)
     return dict(
         mikrotik_host=server.host,
@@ -97,4 +105,5 @@ def build_wg_kwargs(server: Server, user_id: str, plan, plan_name: str, duration
         duration_days=duration_days,
         traffic_limit_gb=(traffic_limit_gb if traffic_limit_gb is not None else (plan.traffic_gb if plan else None)),
         server_id=server.id,
+        peer_name_prefix=peer_name_prefix,
     )
