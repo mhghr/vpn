@@ -6,12 +6,21 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 
 from database import SessionLocal
-from models import WireGuardConfig, Plan
+from models import Server, ServiceType, WireGuardConfig, Plan
 from wireguard import sync_wireguard_usage_counters, disable_expired_or_exhausted_configs, delete_wireguard_peer
-from config import MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT, WG_INTERFACE
 
 ONE_GB_IN_BYTES = 1 * (1024 ** 3)
 TEST_ACCOUNT_PLAN_NAME = "اکانت تست"
+
+
+def _get_wireguard_servers(db):
+    wireguard_type = db.query(ServiceType).filter(ServiceType.code == "wireguard").first()
+    if not wireguard_type:
+        return []
+    return db.query(Server).filter(
+        Server.service_type_id == wireguard_type.id,
+        Server.is_active == True,
+    ).all()
 
 
 async def notify_plan_thresholds_worker(bot: Bot):
@@ -101,14 +110,16 @@ async def cleanup_expired_test_accounts_worker(bot: Bot):
                     continue
 
                 try:
-                    delete_wireguard_peer(
-                        mikrotik_host=MIKROTIK_HOST,
-                        mikrotik_user=MIKROTIK_USER,
-                        mikrotik_pass=MIKROTIK_PASS,
-                        mikrotik_port=MIKROTIK_PORT,
-                        wg_interface=WG_INTERFACE,
-                        client_ip=config.client_ip,
-                    )
+                    server = db.query(Server).filter(Server.id == config.server_id, Server.is_active == True).first()
+                    if server:
+                        delete_wireguard_peer(
+                            mikrotik_host=server.host,
+                            mikrotik_user=server.username,
+                            mikrotik_pass=server.password,
+                            mikrotik_port=server.api_port,
+                            wg_interface=server.wg_interface,
+                            client_ip=config.client_ip,
+                        )
                 except Exception as e:
                     print(f"Test account peer delete failed ({config.client_ip}): {e}", file=sys.stderr)
 
@@ -134,21 +145,26 @@ async def cleanup_expired_test_accounts_worker(bot: Bot):
 
 async def usage_sync_worker():
     while True:
+        db = SessionLocal()
         try:
-            sync_wireguard_usage_counters(
-                mikrotik_host=MIKROTIK_HOST,
-                mikrotik_user=MIKROTIK_USER,
-                mikrotik_pass=MIKROTIK_PASS,
-                mikrotik_port=MIKROTIK_PORT,
-                wg_interface=WG_INTERFACE,
-            )
-            disable_expired_or_exhausted_configs(
-                mikrotik_host=MIKROTIK_HOST,
-                mikrotik_user=MIKROTIK_USER,
-                mikrotik_pass=MIKROTIK_PASS,
-                mikrotik_port=MIKROTIK_PORT,
-                wg_interface=WG_INTERFACE,
-            )
+            servers = _get_wireguard_servers(db)
+            for server in servers:
+                sync_wireguard_usage_counters(
+                    mikrotik_host=server.host,
+                    mikrotik_user=server.username,
+                    mikrotik_pass=server.password,
+                    mikrotik_port=server.api_port,
+                    wg_interface=server.wg_interface,
+                )
+                disable_expired_or_exhausted_configs(
+                    mikrotik_host=server.host,
+                    mikrotik_user=server.username,
+                    mikrotik_pass=server.password,
+                    mikrotik_port=server.api_port,
+                    wg_interface=server.wg_interface,
+                )
         except Exception as e:
             print(f"Usage sync worker error: {e}", file=sys.stderr)
+        finally:
+            db.close()
         await asyncio.sleep(180)

@@ -18,9 +18,6 @@ from config import (
     admin_service_type_state, admin_server_state, admin_tutorial_state, admin_representative_state,
     admin_card_state,
     CARD_NUMBER, CARD_HOLDER,
-    MIKROTIK_HOST, MIKROTIK_USER, MIKROTIK_PASS, MIKROTIK_PORT,
-    WG_INTERFACE, WG_SERVER_PUBLIC_KEY, WG_SERVER_ENDPOINT, WG_SERVER_PORT,
-    WG_CLIENT_NETWORK_BASE, WG_CLIENT_DNS,
     AGENT_BOT_DOCKER_IMAGE, AGENT_BOT_CONTAINER_PREFIX, AGENT_BOT_DOCKER_NETWORK
 )
 
