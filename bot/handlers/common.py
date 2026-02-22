@@ -17,7 +17,7 @@ from config import (
     admin_user_search_state, admin_wallet_adjust_state, admin_discount_state, admin_receipt_reject_state,
     admin_service_type_state, admin_server_state, admin_tutorial_state, admin_representative_state,
     admin_card_state,
-    CARD_NUMBER, CARD_HOLDER,
+    org_user_state,
     AGENT_BOT_DOCKER_IMAGE, AGENT_BOT_CONTAINER_PREFIX, AGENT_BOT_DOCKER_NETWORK
 )
 

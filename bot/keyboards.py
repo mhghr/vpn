@@ -245,32 +245,49 @@ def get_admin_user_manage_keyboard(
         buttons.append([InlineKeyboardButton(text="💼 مالی", callback_data=f"admin_user_finance_{user_id}")])
         if show_finance_panel:
             buttons.extend([
-                [InlineKeyboardButton(text=f"📊 مجموع ترافیک لینک‌های فعال: {total_traffic_text}", callback_data=f"admin_user_org_total_traffic_{user_id}")],
-                [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data=f"admin_user_org_price_{user_id}")],
-                [InlineKeyboardButton(text=f"🧾 مبلغ بدهکاری: {debt_text}", callback_data=f"admin_user_org_debt_{user_id}")],
-                [InlineKeyboardButton(text=f"🕓 زمان آخرین تسویه: {last_settlement_text}", callback_data=f"admin_user_org_last_settlement_{user_id}")],
-                [InlineKeyboardButton(text="✅ تسویه حساب انجام شد", callback_data=f"admin_user_org_settle_{user_id}")],
+                [InlineKeyboardButton(text=f"📊 مجموع ترافیک مصرفی: {total_traffic_text}", callback_data=f"admin_user_org_total_traffic_{user_id}")],
+                [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data=f"admin_user_org_price_edit_{user_id}")],
+                [InlineKeyboardButton(text=f"🧾 مجموع قابل پرداخت: {debt_text}", callback_data=f"admin_user_org_debt_{user_id}")],
+                [InlineKeyboardButton(text=f"🕓 تاریخ آخرین تسویه: {last_settlement_text}", callback_data=f"admin_user_org_last_settlement_{user_id}")],
+                [InlineKeyboardButton(text="✅ تسویه", callback_data=f"admin_user_org_settle_{user_id}")],
             ])
 
     buttons.append([InlineKeyboardButton(text=" بازگشت به جستجو", callback_data="admin_search"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_configs_keyboard(configs: list):
+def get_configs_keyboard(configs: list, is_org_customer: bool = False):
     buttons = []
     for config in configs:
         label = f"{config.plan_name or 'کانفیگ'} - {config.client_ip}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"cfg_view_{config.id}")])
+    if is_org_customer:
+        buttons.append([
+            InlineKeyboardButton(text="➕ ساخت اکانت", callback_data="org_create_account"),
+            InlineKeyboardButton(text="💼 مالی", callback_data="org_finance"),
+        ])
     buttons.append([InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_admin_config_detail_keyboard(config_id: int, can_renew: bool = False):
+def get_admin_config_detail_keyboard(
+    config_id: int,
+    can_renew: bool = False,
+    duration_days_text: str = "نامشخص",
+    traffic_text: str = "نامشخص",
+    consumed_text: str = "-",
+    remaining_text: str = "-",
+    status_text: str = "-",
+):
     buttons = []
     renew_callback = f"cfg_renew_{config_id}" if can_renew else f"cfg_renew_unavailable_{config_id}"
     renew_label = "♻️ تمدید سرویس" if can_renew else "♻️ تمدید سرویس (پس از غیرفعال شدن)"
     buttons.append([InlineKeyboardButton(text=renew_label, callback_data=renew_callback)])
-    buttons.append([InlineKeyboardButton(text="✏️ ویرایش ترافیک", callback_data=f"admin_cfg_edit_traffic_{config_id}"), InlineKeyboardButton(text="✏️ ویرایش روز", callback_data=f"admin_cfg_edit_days_{config_id}")])
+    buttons.append([InlineKeyboardButton(text=f"⏰ تعداد روز: {duration_days_text}", callback_data=f"admin_cfg_set_days_{config_id}")])
+    buttons.append([InlineKeyboardButton(text=f"🌐 ترافیک کل: {traffic_text}", callback_data=f"admin_cfg_set_traffic_{config_id}")])
+    buttons.append([InlineKeyboardButton(text=f"📊 ترافیک مصرفی: {consumed_text}", callback_data=f"admin_cfg_ro_{config_id}")])
+    buttons.append([InlineKeyboardButton(text=f"📉 ترافیک باقی‌مانده: {remaining_text}", callback_data=f"admin_cfg_ro_{config_id}")])
+    buttons.append([InlineKeyboardButton(text=f"🔘 وضعیت: {status_text}", callback_data=f"admin_cfg_ro_{config_id}")])
     buttons.append([InlineKeyboardButton(text="⏸️ غیرفعال کردن", callback_data=f"admin_cfg_disable_{config_id}"), InlineKeyboardButton(text="🗑️ حذف کانفیگ", callback_data=f"admin_cfg_delete_{config_id}")])
     buttons.append([InlineKeyboardButton(text=" بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -379,19 +396,47 @@ def get_profile_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+
+
+def get_org_finance_keyboard(
+    user_id: int,
+    total_traffic_text: str,
+    price_per_gb_text: str,
+    debt_text: str,
+    last_settlement_text: str,
+    can_edit_price: bool = False,
+    show_settlement_action: bool = False,
+    back_callback: str = "profile",
+):
+    price_callback = f"admin_user_org_price_edit_{user_id}" if can_edit_price else "org_finance_ro"
+    settle_callback = f"admin_user_org_settle_{user_id}" if can_edit_price else "org_settle_request"
+    buttons = [
+        [InlineKeyboardButton(text=f"📊 مجموع ترافیک مصرفی: {total_traffic_text}", callback_data="org_finance_ro")],
+        [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data=price_callback)],
+        [InlineKeyboardButton(text=f"🧾 مجموع قابل پرداخت: {debt_text}", callback_data="org_finance_ro")],
+        [InlineKeyboardButton(text=f"🕓 تاریخ آخرین تسویه: {last_settlement_text}", callback_data="org_finance_ro")],
+    ]
+    if show_settlement_action:
+        buttons.append([InlineKeyboardButton(text="✅ تسویه", callback_data=settle_callback)])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data=back_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 def get_profile_finance_keyboard(
     total_traffic_text: str,
     price_per_gb_text: str,
     debt_text: str,
     last_settlement_text: str,
 ):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"📊 مجموع ترافیک لینک‌های فعال: {total_traffic_text}", callback_data="profile_finance_ro")],
-        [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data="profile_finance_ro")],
-        [InlineKeyboardButton(text=f"🧾 مبلغ بدهکاری: {debt_text}", callback_data="profile_finance_ro")],
-        [InlineKeyboardButton(text=f"🕓 زمان آخرین تسویه: {last_settlement_text}", callback_data="profile_finance_ro")],
-        [InlineKeyboardButton(text="🔙 بازگشت به حساب کاربری", callback_data="profile")],
-    ])
+    return get_org_finance_keyboard(
+        user_id=0,
+        total_traffic_text=total_traffic_text,
+        price_per_gb_text=price_per_gb_text,
+        debt_text=debt_text,
+        last_settlement_text=last_settlement_text,
+        can_edit_price=False,
+        show_settlement_action=True,
+        back_callback="profile",
+    )
 
 
 def get_wallet_keyboard(wallet_balance: int):

@@ -79,6 +79,10 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
     elif data.startswith("create_acc_custom_server_"):
         server_id = int(data.split("_")[-1])
         state = admin_create_account_state.get(user_id)
+        source_state = "admin"
+        if not state:
+            state = org_user_state.get(user_id)
+            source_state = "org"
         if not state or state.get("step") != "server":
             await callback.message.answer("❌ ابتدا فرایند ساخت پلن دلخواه را تکمیل کنید.", parse_mode="HTML")
             return
@@ -91,8 +95,9 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
             account_name = state.get("name") or "بدون پلن"
             days = int(state.get("days") or 0)
             traffic = float(state.get("traffic") or 0)
+            owner_tg = str(user_id)
             import wireguard
-            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), None, "بدون پلن", days, traffic_limit_gb=traffic))
+            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, owner_tg, None, account_name, days, traffic_limit_gb=traffic))
             if wg_result.get("success"):
                 await callback.message.answer(f"✅ اکانت دلخواه روی سرور {server.name} ایجاد شد.", parse_mode="HTML")
                 if wg_result.get("config"):
@@ -103,7 +108,10 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                 await callback.message.answer(f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}", parse_mode="HTML")
         finally:
             db.close()
-            admin_create_account_state.pop(user_id, None)
+            if source_state == "admin":
+                admin_create_account_state.pop(user_id, None)
+            else:
+                org_user_state.pop(user_id, None)
 
     elif data == "create_acc_custom":
         # Start custom plan flow - ask for name first

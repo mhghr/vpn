@@ -192,6 +192,7 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         "admin_user_org_debt_",
         "admin_user_org_last_settlement_",
         "admin_user_org_settle_",
+        "admin_user_org_price_edit_",
         "admin_user_wallet_actions_",
         "admin_user_finance_",
     )):
@@ -282,15 +283,19 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         finally:
             db.close()
 
-    elif data.startswith("admin_user_org_price_"):
-        target_user_id = int(data.replace("admin_user_org_price_", ""))
+    elif data.startswith("admin_user_org_price_edit_"):
+        target_user_id = int(data.replace("admin_user_org_price_edit_", ""))
         db = SessionLocal()
         try:
             user_obj = db.query(User).filter(User.id == target_user_id).first()
             if not user_obj or not user_obj.is_organization_customer:
                 await callback.answer("این کاربر مشتری سازمانی نیست.", show_alert=True)
                 return
-            await callback.answer(f"هزینه هر گیگ: {(user_obj.org_price_per_gb or 0):,} تومان", show_alert=True)
+            admin_plan_state[user_id] = {"action": "edit_org_price", "target_user_id": target_user_id}
+            await callback.message.answer(
+                f"مقدار جدید هزینه هر گیگ را وارد کنید.\n\nمقدار فعلی: {(user_obj.org_price_per_gb or 0):,} تومان",
+                parse_mode="HTML",
+            )
         finally:
             db.close()
 
@@ -332,7 +337,23 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                 WireGuardConfig.user_telegram_id == user_obj.telegram_id,
                 WireGuardConfig.status == "active"
             ).all()
+            reset_count = 0
             for cfg in active_configs:
+                server = db.query(Server).filter(Server.id == cfg.server_id, Server.is_active == True).first() if cfg.server_id else None
+                if server:
+                    try:
+                        import wireguard
+                        if wireguard.reset_wireguard_peer_traffic(
+                            mikrotik_host=server.host,
+                            mikrotik_user=server.username,
+                            mikrotik_pass=server.password,
+                            mikrotik_port=server.api_port,
+                            wg_interface=server.wg_interface,
+                            client_ip=cfg.client_ip,
+                        ):
+                            reset_count += 1
+                    except Exception as e:
+                        print(f"Org settlement peer reset failed ({cfg.client_ip}): {e}")
                 cfg.cumulative_rx_bytes = 0
                 cfg.cumulative_tx_bytes = 0
                 cfg.last_rx_counter = 0
@@ -340,7 +361,10 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                 cfg.counter_reset_flag = True
             user_obj.org_last_settlement_at = datetime.utcnow()
             db.commit()
-            await callback.message.answer("✅ تسویه حساب انجام شد و مصرف لینک‌های فعال صفر شد.", parse_mode="HTML")
+            await callback.message.answer(
+                f"✅ تسویه انجام شد. {reset_count} کانفیگ روی روتر ریست و مصرف در دیتابیس صفر شد.",
+                parse_mode="HTML",
+            )
             msg, keyboard = get_admin_user_manage_view(db, user_obj, show_finance_panel=True)
             await callback.message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
         finally:
@@ -399,38 +423,36 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
 
             server = db.query(Server).filter(Server.id == config.server_id).first() if config.server_id else None
             msg = (
-                f"📋 جزئیات کانفیگ (مدیریت)\n\n"
-                f"• کاربر: {config.user_telegram_id}\n"
-                f"• پلن: {config.plan_name or 'بدون پلن'}\n"
-                f"• سرور: {server.name if server else '-'}\n"
-                f"• آی پی: {config.client_ip}\n"
-                f"• زمان ایجاد: {format_jalali_date(config.created_at)}\n"
-                f"• آخرین تمدید: {format_jalali_date(config.renewed_at)}\n"
-                f"• تعداد روز: {duration_days if duration_days is not None else 'نامشخص'}\n"
-                f"• ترافیک کل: {traffic_limit_gb if traffic_limit_gb is not None else 'نامشخص'} گیگ\n"
-                f"• تاریخ انقضا: {format_jalali_date(expires_at)}\n"
-                f"• وضعیت: {status_text}\n"
-                f"• ترافیک مصرفی: {format_traffic_size(consumed_bytes)}\n"
-                f"• ترافیک باقی‌مانده: {format_traffic_size(remaining_bytes) if plan_traffic_bytes else 'نامحدود/نامشخص'}\n"
-                f"• روز باقی‌مانده: {remaining_days}"
+                f"📋 مدیریت کانفیگ {config.client_ip}\nبرای ویرایش، روی دکمه روز یا ترافیک بزنید."
             )
             await callback.message.answer(
                 msg,
-                reply_markup=get_admin_config_detail_keyboard(config.id, can_renew=can_renew),
+                reply_markup=get_admin_config_detail_keyboard(
+                    config.id,
+                    can_renew=can_renew,
+                    duration_days_text=(str(duration_days) if duration_days is not None else "نامشخص"),
+                    traffic_text=(f"{traffic_limit_gb} گیگ" if traffic_limit_gb is not None else "نامشخص"),
+                    consumed_text=format_traffic_size(consumed_bytes),
+                    remaining_text=(format_traffic_size(remaining_bytes) if plan_traffic_bytes else "نامحدود/نامشخص"),
+                    status_text=status_text,
+                ),
                 parse_mode="HTML"
             )
         finally:
             db.close()
 
-    elif data.startswith("admin_cfg_edit_traffic_"):
-        config_id = int(data.replace("admin_cfg_edit_traffic_", ""))
+    elif data.startswith("admin_cfg_set_traffic_"):
+        config_id = int(data.replace("admin_cfg_set_traffic_", ""))
         admin_plan_state[user_id] = {"action": "edit_config", "field": "traffic", "config_id": config_id}
         await callback.message.answer("مقدار جدید ترافیک (گیگ) را وارد کنید:", parse_mode="HTML")
 
-    elif data.startswith("admin_cfg_edit_days_"):
-        config_id = int(data.replace("admin_cfg_edit_days_", ""))
+    elif data.startswith("admin_cfg_set_days_"):
+        config_id = int(data.replace("admin_cfg_set_days_", ""))
         admin_plan_state[user_id] = {"action": "edit_config", "field": "days", "config_id": config_id}
         await callback.message.answer("تعداد روز جدید را وارد کنید:", parse_mode="HTML")
+
+    elif data.startswith("admin_cfg_ro_"):
+        await callback.answer("برای ویرایش فقط روی دکمه روز یا ترافیک بزنید.", show_alert=False)
 
     elif data.startswith("admin_cfg_disable_"):
         if not is_admin(user_id):
@@ -1026,6 +1048,59 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                         await callback.message.edit_reply_markup(
                             reply_markup=get_receipt_done_keyboard("✅ تایید شد")
                         )
+                    except Exception:
+                        pass
+                    return True
+
+                if receipt.payment_method == "org_settlement":
+                    target_user = get_user(db, receipt.user_telegram_id)
+                    if not target_user or not target_user.is_organization_customer:
+                        await callback.message.answer("❌ کاربر سازمانی یافت نشد.", parse_mode="HTML")
+                        return True
+                    active_configs = db.query(WireGuardConfig).filter(
+                        WireGuardConfig.user_telegram_id == target_user.telegram_id,
+                        WireGuardConfig.status == "active",
+                    ).all()
+                    reset_count = 0
+                    for cfg in active_configs:
+                        server = db.query(Server).filter(Server.id == cfg.server_id, Server.is_active == True).first() if cfg.server_id else None
+                        if server:
+                            try:
+                                import wireguard
+                                if wireguard.reset_wireguard_peer_traffic(
+                                    mikrotik_host=server.host,
+                                    mikrotik_user=server.username,
+                                    mikrotik_pass=server.password,
+                                    mikrotik_port=server.api_port,
+                                    wg_interface=server.wg_interface,
+                                    client_ip=cfg.client_ip,
+                                ):
+                                    reset_count += 1
+                            except Exception as e:
+                                print(f"Org settlement approve reset error ({cfg.client_ip}): {e}")
+                        cfg.cumulative_rx_bytes = 0
+                        cfg.cumulative_tx_bytes = 0
+                        cfg.last_rx_counter = 0
+                        cfg.last_tx_counter = 0
+                        cfg.counter_reset_flag = True
+                    target_user.org_last_settlement_at = datetime.utcnow()
+                    db.commit()
+
+                    await callback.message.answer(
+                        f"✅ تسویه سازمانی تایید شد.\n• کاربر: {receipt.user_telegram_id}\n• تعداد ریست روتر: {reset_count}",
+                        reply_markup=get_receipt_done_keyboard(),
+                        parse_mode="HTML"
+                    )
+                    try:
+                        await callback.message.bot.send_message(
+                            chat_id=int(receipt.user_telegram_id),
+                            text="✅ فیش تسویه شما تایید شد و مصرف همه لینک‌ها صفر گردید.",
+                            parse_mode="HTML",
+                        )
+                    except Exception as e:
+                        print(f"Error notifying org settlement approval: {e}")
+                    try:
+                        await callback.message.edit_reply_markup(reply_markup=get_receipt_done_keyboard("✅ تایید شد"))
                     except Exception:
                         pass
                     return True

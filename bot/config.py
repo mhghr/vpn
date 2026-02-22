@@ -30,9 +30,6 @@ CHANNEL_ID = os.getenv("CHANNEL_ID", "route_net")
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "route_net")
 ADMIN_IDS = [os.getenv("ADMIN_ID", "6245412936")]
 
-# ==================== Payment Configuration ====================
-CARD_NUMBER = os.getenv("CARD_NUMBER", "1234-5678-9012-3456")
-CARD_HOLDER = os.getenv("CARD_HOLDER", "نام صاحب کارت")
 
 # ==================== Representative Bot Configuration ====================
 AGENT_BOT_DOCKER_IMAGE = os.getenv("AGENT_BOT_DOCKER_IMAGE", "vpn-agent-bot:latest")
@@ -55,3 +52,4 @@ admin_tutorial_state = {}  # For tutorial creation flow
 admin_representative_state = {}  # For representative management flow
 
 admin_card_state = {}  # For admin card-number edit flow
+org_user_state = {}  # For organization-user create-account/settlement flow
