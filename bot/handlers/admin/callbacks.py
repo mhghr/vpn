@@ -1127,7 +1127,7 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                                         (
                                             "📷 QR Code WireGuard\n\n"
                                             "➕ این تصویر را در نرم‌افزار WireGuard اضافه کنید\n\n"
-                                            f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                                            f"🏷 نام کانفیگ: {wg_result.get('peer_comment', 'نامشخص')}\n"
                                             f"📦 پلن انتخابی: {receipt.plan_name}"
                                         ),
                                         chat_id=user_tg_id

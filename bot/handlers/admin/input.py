@@ -493,7 +493,7 @@ async def handle_admin_input(message: Message):
                                 f"QR Code - {days}روز / {traffic}گیگ"
                             )
                             await message.answer(
-                                f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                                f"🏷 نام کانفیگ: {wg_result.get('peer_comment', 'نامشخص')}\n"
                                 f"📦 پلن انتخابی: {account_name}",
                                 parse_mode="HTML"
                             )

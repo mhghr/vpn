@@ -6,6 +6,7 @@ import sys
 import logging
 from io import BytesIO
 import base64
+import ipaddress
 from datetime import datetime, timedelta
 
 # Configure logging
@@ -490,14 +491,37 @@ def get_next_available_ip_from_db(
     """
     logger.info(f"[Step 2] Getting next available IP from database, network: {network_base}...")
     
-    # Parse network base (e.g., "192.168.30.0" -> "192.168.30.")
-    base_parts = network_base.rsplit('.', 1)
-    prefix = base_parts[0] + "."
+    # Normalize network base (supports CIDR/plain IP/3-octet prefix)
+    raw_base = (network_base or "").strip()
+    if not raw_base:
+        raise ValueError("network_base is empty")
+
+    if "-" in raw_base and "/" not in raw_base:
+        # Legacy/manual: range kept in base field; use left-side prefix
+        raw_base = raw_base.split("-", 1)[0].strip()
+
+    if "/" in raw_base:
+        try:
+            network = ipaddress.ip_network(raw_base, strict=False)
+            if isinstance(network, ipaddress.IPv4Network):
+                raw_base = str(network.network_address)
+        except ValueError:
+            # Fallback to simple split logic below
+            pass
+
+    parts = raw_base.split(".")
+    if len(parts) == 3:
+        # Backward compatibility for values like "192.168.30"
+        prefix = f"{parts[0]}.{parts[1]}.{parts[2]}."
+    elif len(parts) == 4:
+        prefix = ".".join(parts[:3]) + "."
+    else:
+        raise ValueError(f"Invalid network_base: {network_base}")
     
     start = ip_range_start
     end = ip_range_end
     
-    logger.info(f"[Step 2] IP range: {start}-{end}")
+    logger.info(f"[Step 2] Normalized prefix: {prefix} | IP range: {start}-{end}")
     
     db = SessionLocal()
     try:
@@ -835,8 +859,22 @@ def create_wireguard_account(
 
         # Step 4: Get next available IP by checking DB + router peers
         peers = api.get_resource('/interface/wireguard/peers').get()
-        base_parts = wg_client_network_base.rsplit('.', 1)
-        prefix = base_parts[0] + "."
+        normalized_base = (wg_client_network_base or "").strip()
+        if "/" in normalized_base:
+            try:
+                normalized_base = str(ipaddress.ip_network(normalized_base, strict=False).network_address)
+            except ValueError:
+                pass
+        base_parts = normalized_base.split('.')
+        if len(base_parts) == 3:
+            prefix = ".".join(base_parts) + "."
+        elif len(base_parts) >= 4:
+            prefix = ".".join(base_parts[:3]) + "."
+        else:
+            error_msg = f"Invalid wg_client_network_base: {wg_client_network_base}"
+            logger.error(f"[Step 4] ✗ {error_msg}")
+            return {"success": False, "error": error_msg}
+
         router_used_ips: set[int] = set()
         for peer in peers:
             if peer.get('interface') and peer.get('interface') != wg_interface:
