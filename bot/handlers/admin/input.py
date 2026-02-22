@@ -112,6 +112,8 @@ async def handle_admin_input(message: Message):
     if user_id in admin_receipt_reject_state:
         state = admin_receipt_reject_state[user_id]
         receipt_id = state.get("receipt_id")
+        source_chat_id = state.get("chat_id")
+        source_message_id = state.get("message_id")
         reject_reason = text.strip()
         
         db = SessionLocal()
@@ -142,6 +144,15 @@ async def handle_admin_input(message: Message):
                     print(f"Error notifying user about rejection: {e}")
                 
                 await message.answer(f"✅ فیش رد شد و کاربر اطلاع داده شد.\n📋 دلیل: {reject_reason}", reply_markup=get_receipt_done_keyboard(), parse_mode="HTML")
+                if source_chat_id and source_message_id:
+                    try:
+                        await message.bot.edit_message_reply_markup(
+                            chat_id=source_chat_id,
+                            message_id=source_message_id,
+                            reply_markup=get_receipt_done_keyboard("❌ پرداخت رد شد")
+                        )
+                    except Exception:
+                        pass
             else:
                 await message.answer("❌ فیش پرداخت یافت نشد.", parse_mode="HTML")
         except Exception as e:
@@ -431,90 +442,70 @@ async def handle_admin_input(message: Message):
                 return
         
         elif step == "traffic":
-            # Validate traffic input
             text_normalized = normalize_numbers(text)
             try:
-                traffic = int(text_normalized)
+                traffic = float(text_normalized)
                 if traffic <= 0:
                     await message.answer("❌ لطفاً یک عدد مثبت وارد کنید.", parse_mode="HTML")
                     return
                 state["traffic"] = traffic
-                days = state.get("days", 0)
-                account_name = state.get("name", "")
-                
-                # Create WireGuard account with custom plan
+                state["step"] = "server"
+
+                db = SessionLocal()
                 try:
-                    import wireguard
-                    db = SessionLocal()
-                    try:
-                        wireguard_type = db.query(ServiceType).filter(ServiceType.code == "wireguard").first()
-                        if not wireguard_type:
-                            await message.answer("❌ نوع سرویس WireGuard در دیتابیس تعریف نشده است.", parse_mode="HTML")
-                            return
-
-                        servers = db.query(Server).filter(
-                            Server.service_type_id == wireguard_type.id,
-                            Server.is_active == True,
-                        ).all()
-                        if not servers:
-                            await message.answer("❌ هیچ سرور فعالی برای WireGuard در دیتابیس ثبت نشده است.", parse_mode="HTML")
-                            return
-
-                        server = min(servers, key=lambda srv: get_server_active_config_count(db, srv.id))
-                        wg_result = wireguard.create_wireguard_account(
-                            **build_wg_kwargs(server, str(user_id), None, account_name, days)
-                        )
-                    finally:
-                        db.close()
-
-                    if wg_result.get("success"):
-                        client_ip = wg_result.get("client_ip", "N/A")
-                        config = wg_result.get("config", "")
-                        
-                        # Send summary + config file + QR to admin
-                        await message.answer(
-                            f"✅ اکانت وایرگارد دلخواه ایجاد شد!\n\n📋 اطلاعات اکانت:\n• مدت: {days} روز\n• حجم: {traffic} گیگ\n• آی پی: {client_ip}",
-                            parse_mode="HTML"
-                        )
-                        
-                        # Send config file
-                        if config:
-                            await send_wireguard_config_file(
-                                message,
-                                config,
-                                caption="📄 فایل کانفیگ WireGuard"
-                            )
-                        
-                        # Send QR if available
-                        if wg_result.get("qr_code"):
-                            await send_qr_code(
-                                message,
-                                wg_result.get("qr_code"),
-                                f"QR Code - {days}روز / {traffic}گیگ"
-                            )
-                            await message.answer(
-                                f"🏷 نام کانفیگ: {wg_result.get('peer_comment', 'نامشخص')}\n"
-                                f"📦 پلن انتخابی: {account_name}",
-                                parse_mode="HTML"
-                            )
-                    else:
-                        await message.answer(
-                            f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}",
-                            parse_mode="HTML"
-                        )
-                except Exception as e:
-                    await message.answer(f"❌ خطا در ایجاد اکانت: {str(e)}", parse_mode="HTML")
+                    wireguard_type = db.query(ServiceType).filter(ServiceType.code == "wireguard").first()
+                    if not wireguard_type:
+                        await message.answer("❌ نوع سرویس WireGuard در دیتابیس تعریف نشده است.", parse_mode="HTML")
+                        return
+                    servers = db.query(Server).filter(Server.service_type_id == wireguard_type.id, Server.is_active == True).all()
+                    if not servers:
+                        await message.answer("❌ هیچ سرور فعالی برای WireGuard ثبت نشده است.", parse_mode="HTML")
+                        return
+                    await message.answer("سرور را برای ساخت اکانت انتخاب کنید:", reply_markup=get_plan_server_select_keyboard(servers, "create_acc_custom_server_"), parse_mode="HTML")
                 finally:
-                    # Clear state
-                    if user_id in admin_create_account_state:
-                        del admin_create_account_state[user_id]
+                    db.close()
             except ValueError:
-                await message.answer("❌ لطفاً یک عدد صحیح وارد کنید.", parse_mode="HTML")
+                await message.answer("❌ لطفاً عدد معتبر وارد کنید.", parse_mode="HTML")
                 return
-        
+
         return
-    
+
+    if user_id in admin_plan_state and admin_plan_state[user_id].get("action") == "edit_config":
+        state = admin_plan_state[user_id]
+        field = state.get("field")
+        config_id = state.get("config_id")
+        db = SessionLocal()
+        try:
+            cfg = db.query(WireGuardConfig).filter(WireGuardConfig.id == config_id).first()
+            if not cfg:
+                await message.answer("❌ کانفیگ یافت نشد.", parse_mode="HTML")
+                return
+            if field == "traffic":
+                val = float(normalize_numbers(text.strip()))
+                if val <= 0:
+                    raise ValueError
+                cfg.traffic_limit_gb = val
+            elif field == "days":
+                val = int(normalize_numbers(text.strip()))
+                if val <= 0:
+                    raise ValueError
+                cfg.duration_days = val
+                cfg.expires_at = datetime.utcnow() + timedelta(days=val)
+            cfg.threshold_alert_sent = False
+            cfg.low_traffic_alert_sent = False
+            cfg.expiry_alert_sent = False
+            db.commit()
+            await message.answer("✅ مقدار کانفیگ بروزرسانی شد.", parse_mode="HTML")
+        except ValueError:
+            await message.answer("❌ مقدار وارد شده معتبر نیست.", parse_mode="HTML")
+            return
+        finally:
+            db.close()
+            admin_plan_state.pop(user_id, None)
+        return
+
     if user_id in admin_plan_state:
+
         state = admin_plan_state[user_id]
 
         if state.get("action") == "test_account_setup":
@@ -688,7 +679,7 @@ async def handle_admin_input(message: Message):
     admin_menu_map = {
         "⚙️ مدیریت": "main_admin",
         "🖥️ پنل‌ها": "admin_panels",
-        "🔍 جستجو": "admin_search_user",
+        "🔍 جستجو": "admin_search",
         "📦 پلن ها": "admin_plans",
         "💳 فیش‌های پرداخت": "admin_receipts",
         "🎁 کد تخفیف": "admin_discount_create",
@@ -706,22 +697,35 @@ async def handle_admin_input(message: Message):
             pending_panel = load_pending_panel()
             await message.answer(ADMIN_MESSAGE, reply_markup=get_admin_keyboard(pending_panel), parse_mode="HTML")
             return
-        if action == "admin_search_user":
-            admin_user_search_state[user_id] = {"active": True}
-            await message.answer(SEARCH_USER_MESSAGE, parse_mode="HTML")
+        if action == "admin_search":
+            admin_user_search_state.pop(user_id, None)
+            await message.answer("نوع جستجو را انتخاب کنید:", reply_markup=get_admin_search_keyboard(), parse_mode="HTML")
             return
         await message.answer("از دکمه‌های داخل صفحه استفاده کنید:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="▶️ باز کردن بخش", callback_data=action)]]), parse_mode="HTML")
         return
 
     if user_id in admin_user_search_state:
         query = normalize_numbers(text.strip())
+        mode = admin_user_search_state[user_id].get("mode", "user")
         db = SessionLocal()
         try:
-            users = search_users(db, query)
-            if users:
-                await message.answer("نتایج جستجو:", reply_markup=get_found_users_keyboard(users), parse_mode="HTML")
+            if mode == "config":
+                like_q = f"%{query}%"
+                configs = db.query(WireGuardConfig).filter(
+                    (WireGuardConfig.client_ip.ilike(like_q)) |
+                    (WireGuardConfig.user_telegram_id.ilike(like_q)) |
+                    (WireGuardConfig.plan_name.ilike(like_q))
+                ).order_by(WireGuardConfig.created_at.desc()).limit(30).all()
+                if configs:
+                    await message.answer("نتایج جستجوی کانفیگ:", reply_markup=get_found_configs_keyboard(configs), parse_mode="HTML")
+                else:
+                    await message.answer("❌ کانفیگی یافت نشد.", parse_mode="HTML")
             else:
-                await message.answer("❌ کاربری یافت نشد.", parse_mode="HTML")
+                users = search_users(db, query)
+                if users:
+                    await message.answer("نتایج جستجو:", reply_markup=get_found_users_keyboard(users), parse_mode="HTML")
+                else:
+                    await message.answer("❌ کاربری یافت نشد.", parse_mode="HTML")
         finally:
             db.close()
             del admin_user_search_state[user_id]
@@ -738,4 +742,3 @@ async def handle_admin_input(message: Message):
             await message.answer("❌ کاربر یافت نشد.", parse_mode="HTML")
     finally:
         db.close()
-

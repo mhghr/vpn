@@ -171,9 +171,17 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
         finally:
             db.close()
 
+    elif data == "admin_search":
+        admin_user_search_state.pop(user_id, None)
+        await callback.message.answer("نوع جستجو را انتخاب کنید:", reply_markup=get_admin_search_keyboard(), parse_mode="HTML")
+
     elif data == "admin_search_user":
-        admin_user_search_state[user_id] = {"active": True}
+        admin_user_search_state[user_id] = {"active": True, "mode": "user"}
         await callback.message.answer(SEARCH_USER_MESSAGE, parse_mode="HTML")
+
+    elif data == "admin_search_config":
+        admin_user_search_state[user_id] = {"active": True, "mode": "config"}
+        await callback.message.answer("متن جستجوی کانفیگ را وارد کنید (IP، پلن یا شناسه کاربر):", parse_mode="HTML")
 
     elif data.startswith("admin_user_") and not data.startswith((
         "admin_user_configs_",
@@ -370,39 +378,41 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                 await callback.message.answer("❌ کانفیگ یافت نشد.", parse_mode="HTML")
                 return
 
-            plan = None
-            plan_traffic_bytes = 0
-            if config.plan_id:
-                plan = db.query(Plan).filter(Plan.id == config.plan_id).first()
-                if plan:
-                    plan_traffic_bytes = (plan.traffic_gb or 0) * (1024 ** 3)
-
-            consumed_bytes = config.cumulative_rx_bytes or 0
-            remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0) if plan_traffic_bytes else 0
-            expires_at = config.expires_at
-            if not expires_at and plan and plan.duration_days:
-                expires_at = config.created_at + timedelta(days=plan.duration_days)
+            plan = db.query(Plan).filter(Plan.id == config.plan_id).first() if config.plan_id else None
+            plan_traffic_bytes, remaining_bytes = get_config_remaining_bytes(config, plan)
+            consumed_bytes = get_config_consumed_bytes(config)
+            expires_at = get_config_expires_at(config, plan)
+            duration_days, traffic_limit_gb = get_config_limits(config, plan)
 
             now = datetime.utcnow()
             is_expired_by_date = bool(expires_at and expires_at <= now)
             is_expired_by_traffic = bool(plan_traffic_bytes and remaining_bytes <= 0)
             is_disabled = config.status in ["expired", "revoked", "disabled"]
-            can_renew = bool(config.plan_id and (is_expired_by_date or is_expired_by_traffic or is_disabled))
+            can_renew = bool(is_expired_by_date or is_expired_by_traffic or is_disabled)
+
+            remaining_days = "نامشخص"
+            if expires_at:
+                days_left = int((expires_at - now).total_seconds() // 86400)
+                remaining_days = str(max(days_left, 0))
 
             status_text = "🔴 غیرفعال" if config.status != "active" else "🟢 فعال"
 
+            server = db.query(Server).filter(Server.id == config.server_id).first() if config.server_id else None
             msg = (
                 f"📋 جزئیات کانفیگ (مدیریت)\n\n"
                 f"• کاربر: {config.user_telegram_id}\n"
-                f"• پلن: {config.plan_name or 'نامشخص'}\n"
+                f"• پلن: {config.plan_name or 'بدون پلن'}\n"
+                f"• سرور: {server.name if server else '-'}\n"
                 f"• آی پی: {config.client_ip}\n"
-                f"• تاریخ خرید: {format_jalali_date(config.created_at)}\n"
+                f"• زمان ایجاد: {format_jalali_date(config.created_at)}\n"
+                f"• آخرین تمدید: {format_jalali_date(config.renewed_at)}\n"
+                f"• تعداد روز: {duration_days if duration_days is not None else 'نامشخص'}\n"
+                f"• ترافیک کل: {traffic_limit_gb if traffic_limit_gb is not None else 'نامشخص'} گیگ\n"
                 f"• تاریخ انقضا: {format_jalali_date(expires_at)}\n"
                 f"• وضعیت: {status_text}\n"
-                f"• حجم مصرفی: {format_traffic_size(consumed_bytes)}\n"
-                f"• حجم دریافتی (RX): {format_traffic_size(config.cumulative_rx_bytes or 0)}\n"
-                f"• حجم ارسالی (TX): {format_traffic_size(config.cumulative_tx_bytes or 0)}\n"
-                f"• حجم باقی‌مانده: {format_traffic_size(remaining_bytes) if plan_traffic_bytes else 'نامحدود/نامشخص'}"
+                f"• ترافیک مصرفی: {format_traffic_size(consumed_bytes)}\n"
+                f"• ترافیک باقی‌مانده: {format_traffic_size(remaining_bytes) if plan_traffic_bytes else 'نامحدود/نامشخص'}\n"
+                f"• روز باقی‌مانده: {remaining_days}"
             )
             await callback.message.answer(
                 msg,
@@ -411,6 +421,16 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
             )
         finally:
             db.close()
+
+    elif data.startswith("admin_cfg_edit_traffic_"):
+        config_id = int(data.replace("admin_cfg_edit_traffic_", ""))
+        admin_plan_state[user_id] = {"action": "edit_config", "field": "traffic", "config_id": config_id}
+        await callback.message.answer("مقدار جدید ترافیک (گیگ) را وارد کنید:", parse_mode="HTML")
+
+    elif data.startswith("admin_cfg_edit_days_"):
+        config_id = int(data.replace("admin_cfg_edit_days_", ""))
+        admin_plan_state[user_id] = {"action": "edit_config", "field": "days", "config_id": config_id}
+        await callback.message.answer("تعداد روز جدید را وارد کنید:", parse_mode="HTML")
 
     elif data.startswith("admin_cfg_disable_"):
         if not is_admin(user_id):
@@ -1002,6 +1022,12 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                         reply_markup=get_receipt_done_keyboard(),
                         parse_mode="HTML"
                     )
+                    try:
+                        await callback.message.edit_reply_markup(
+                            reply_markup=get_receipt_done_keyboard("✅ تایید شد")
+                        )
+                    except Exception:
+                        pass
                     return True
 
                 if receipt.renew_config_id:
@@ -1016,6 +1042,12 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                             reply_markup=get_receipt_done_keyboard("⚠️ بررسی دستی لازم است"),
                             parse_mode="HTML"
                         )
+                        try:
+                            await callback.message.edit_reply_markup(
+                                reply_markup=get_receipt_done_keyboard("✅ تایید شد")
+                            )
+                        except Exception:
+                            pass
                         return True
 
                     server = db.query(Server).filter(Server.id == renew_config.server_id).first() if renew_config.server_id else None
@@ -1041,7 +1073,10 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                             print(f"Renew reset peer failed: {e}")
 
                     renew_config.status = "active"
+                    renew_config.duration_days = plan.duration_days
+                    renew_config.traffic_limit_gb = plan.traffic_gb
                     renew_config.expires_at = datetime.utcnow() + timedelta(days=(plan.duration_days or 0))
+                    renew_config.renewed_at = datetime.utcnow()
                     renew_config.cumulative_rx_bytes = 0
                     renew_config.cumulative_tx_bytes = 0
                     renew_config.last_rx_counter = 0
@@ -1152,12 +1187,24 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
                         reply_markup=get_receipt_done_keyboard(),
                         parse_mode="HTML"
                     )
+                    try:
+                        await callback.message.edit_reply_markup(
+                            reply_markup=get_receipt_done_keyboard("✅ تایید شد")
+                        )
+                    except Exception:
+                        pass
                 else:
                     await callback.message.answer(
                         f"✅ پرداخت تایید شد!\n\n• پلن: {receipt.plan_name}\n• مبلغ: {receipt.amount} تومان\n• کاربر: {receipt.user_telegram_id}\n\n⚠️ حساب WireGuard ایجاد نشد. لطفاً دستی ایجاد کنید.",
                         reply_markup=get_receipt_done_keyboard(),
                         parse_mode="HTML"
                     )
+                    try:
+                        await callback.message.edit_reply_markup(
+                            reply_markup=get_receipt_done_keyboard("✅ تایید شد")
+                        )
+                    except Exception:
+                        pass
             else:
                 await callback.message.answer("❌ فیش پرداخت یافت نشد.", parse_mode="HTML")
         except Exception as e:
@@ -1170,7 +1217,11 @@ async def handle_admin_callbacks(callback: CallbackQuery, bot, data: str, user_i
             await callback.answer("❌ دسترسی ندارید.", show_alert=True)
             return
         receipt_id = int(data.split("_")[-1])
-        admin_receipt_reject_state[user_id] = {"receipt_id": receipt_id}
+        admin_receipt_reject_state[user_id] = {
+            "receipt_id": receipt_id,
+            "chat_id": callback.message.chat.id,
+            "message_id": callback.message.message_id,
+        }
         await callback.message.answer("❌ لطفاً دلیل رد کردن فیش را بنویسید:", parse_mode="HTML")
 
     elif data == "back_to_main":
