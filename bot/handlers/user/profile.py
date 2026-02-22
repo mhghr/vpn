@@ -14,13 +14,36 @@ async def handle_user_profile_callbacks(callback: CallbackQuery, bot, data: str,
             financials = calculate_org_user_financials(db, user)
             await callback.message.answer(
                 "💼 موارد مالی مشتری سازمانی (فقط خواندنی):",
-                reply_markup=get_profile_finance_keyboard(
+                reply_markup=get_org_finance_keyboard(
                     total_traffic_text=f"{financials['total_traffic_gb']:.2f} GB",
                     price_per_gb_text=f"{financials['price_per_gb']:,} تومان",
                     debt_text=f"{financials['debt_amount']:,} تومان",
                     last_settlement_text=financials['last_settlement'],
+                    owner="user",
                 ),
                 parse_mode="HTML",
+            )
+        finally:
+            db.close()
+
+
+    elif data == "profile_finance_settle":
+        db = SessionLocal()
+        try:
+            user = get_user(db, str(user_id))
+            if not user or not user.is_organization_customer:
+                await callback.answer("این بخش فقط برای کاربران سازمانی است.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, user)
+            amount = int(financials.get("debt_amount", 0) or 0)
+            if amount <= 0:
+                await callback.answer("بدهی قابل تسویه ندارید.", show_alert=True)
+                return
+            card_number, card_holder = get_card_info()
+            user_payment_state[user_id] = {"method": "org_settlement", "amount": amount, "step": "receipt_upload"}
+            await callback.message.answer(
+                f"💼 تسویه مالی سازمانی\n\nمبلغ قابل پرداخت: {amount:,} تومان\n\nلطفاً مبلغ را به کارت زیر واریز کنید و عکس فیش را ارسال کنید:\n<code>{card_number or '-'}</code>\n{card_holder or '-'}",
+                parse_mode="HTML"
             )
         finally:
             db.close()

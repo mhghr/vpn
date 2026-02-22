@@ -15,7 +15,7 @@ def get_main_keyboard(is_admin_user: bool = False):
 
 def get_admin_keyboard(pending_panel=None):
     buttons = [
-        [InlineKeyboardButton(text="🖥️ پنل‌ها", callback_data="admin_panels"), InlineKeyboardButton(text="🔍 جستجو", callback_data="admin_search_user")],
+        [InlineKeyboardButton(text="🖥️ پنل‌ها", callback_data="admin_panels"), InlineKeyboardButton(text="🔍 جستجو", callback_data="admin_search")],
         [InlineKeyboardButton(text="📦 پلن ها", callback_data="admin_plans"), InlineKeyboardButton(text="💳 فیش‌های پرداخت", callback_data="admin_receipts")],
         [InlineKeyboardButton(text="🎁 کد تخفیف", callback_data="admin_discount_create"), InlineKeyboardButton(text="🧩 انواع سرویس", callback_data="admin_service_types")],
         [InlineKeyboardButton(text="🖧 مدیریت سرورها", callback_data="admin_servers"), InlineKeyboardButton(text="🔗 ساخت اکانت", callback_data="admin_create_account")],
@@ -172,12 +172,29 @@ def get_receipt_done_keyboard(status_text: str = "✅ انجام شد"):
     ])
 
 
+
+
+def get_admin_search_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 جستجوی کاربر", callback_data="admin_search_user")],
+        [InlineKeyboardButton(text="🔗 جستجوی کانفیگ", callback_data="admin_search_config")],
+        [InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")],
+    ])
+
+
+def get_found_configs_keyboard(configs: list):
+    buttons = []
+    for cfg in configs:
+        label = f"{cfg.client_ip} | {cfg.plan_name or 'بدون پلن'} | {cfg.user_telegram_id}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"admin_cfg_view_{cfg.id}")])
+    buttons.append([InlineKeyboardButton(text="🔍 جستجوی جدید", callback_data="admin_search"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 def get_found_users_keyboard(users: list):
     buttons = []
     for user in users:
         name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "بدون نام"
         buttons.append([InlineKeyboardButton(text=f"{name} | {user.telegram_id}", callback_data=f"admin_user_{user.id}")])
-    buttons.append([InlineKeyboardButton(text="🔍 جستجوی جدید", callback_data="admin_search_user"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
+    buttons.append([InlineKeyboardButton(text="🔍 جستجوی جدید", callback_data="admin_search"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -235,26 +252,41 @@ def get_admin_user_manage_keyboard(
                 [InlineKeyboardButton(text="✅ تسویه حساب انجام شد", callback_data=f"admin_user_org_settle_{user_id}")],
             ])
 
-    buttons.append([InlineKeyboardButton(text=" بازگشت به جستجو", callback_data="admin_search_user"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
+    buttons.append([InlineKeyboardButton(text=" بازگشت به جستجو", callback_data="admin_search"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_configs_keyboard(configs: list):
+def get_configs_keyboard(configs: list, is_org_customer: bool = False):
     buttons = []
     for config in configs:
         label = f"{config.plan_name or 'کانفیگ'} - {config.client_ip}"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"cfg_view_{config.id}")])
+    if is_org_customer:
+        buttons.append([InlineKeyboardButton(text="➕ ساخت اکانت", callback_data="org_create_account")])
+        buttons.append([InlineKeyboardButton(text="💼 مالی", callback_data="profile_finance")])
     buttons.append([InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_admin_config_detail_keyboard(config_id: int, can_renew: bool = False):
-    buttons = []
+def get_admin_config_detail_keyboard(config_id: int, details: dict, can_renew: bool = False):
+    buttons = [
+        [InlineKeyboardButton(text=f"👤 کاربر: {details.get('user','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"📦 پلن: {details.get('plan','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🖥 سرور: {details.get('server','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🕒 زمان ایجاد: {details.get('created','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"🔄 آخرین تمدید: {details.get('renewed','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"📅 تعداد روز: {details.get('days','-')}", callback_data=f"admin_cfg_edit_days_{config_id}")],
+        [InlineKeyboardButton(text=f"📶 ترافیک کل (گیگ): {details.get('traffic','-')}", callback_data=f"admin_cfg_edit_traffic_{config_id}")],
+        [InlineKeyboardButton(text=f"📉 مصرفی: {details.get('used','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"📈 باقی‌مانده: {details.get('remaining','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"⏳ روز باقی‌مانده: {details.get('days_left','-')}", callback_data="admin_user_info_ro")],
+        [InlineKeyboardButton(text=f"📌 وضعیت: {details.get('status','-')}", callback_data="admin_user_info_ro")],
+    ]
     renew_callback = f"cfg_renew_{config_id}" if can_renew else f"cfg_renew_unavailable_{config_id}"
     renew_label = "♻️ تمدید سرویس" if can_renew else "♻️ تمدید سرویس (پس از غیرفعال شدن)"
     buttons.append([InlineKeyboardButton(text=renew_label, callback_data=renew_callback)])
     buttons.append([InlineKeyboardButton(text="⏸️ غیرفعال کردن", callback_data=f"admin_cfg_disable_{config_id}"), InlineKeyboardButton(text="🗑️ حذف کانفیگ", callback_data=f"admin_cfg_delete_{config_id}")])
-    buttons.append([InlineKeyboardButton(text=" بازگشت به کانفیگ‌ها", callback_data="configs"), InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
+    buttons.append([InlineKeyboardButton(text="🏠 منوی مدیریت", callback_data="admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -274,6 +306,8 @@ def get_config_detail_keyboard(
     renew_callback = f"cfg_renew_{config_id}" if can_renew else f"cfg_renew_unavailable_{config_id}"
     renew_label = "♻️ تمدید سرویس" if can_renew else "♻️ تمدید سرویس (پس از غیرفعال شدن)"
     buttons.append([InlineKeyboardButton(text=renew_label, callback_data=renew_callback)])
+
+    buttons.append([InlineKeyboardButton(text="🗑️ حذف کانفیگ", callback_data=f"cfg_delete_{config_id}")])
 
     if is_org_customer:
         buttons.append([InlineKeyboardButton(text="💼 موارد مالی", callback_data=f"cfg_financial_{config_id}")])
@@ -359,19 +393,25 @@ def get_profile_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_profile_finance_keyboard(
-    total_traffic_text: str,
-    price_per_gb_text: str,
-    debt_text: str,
-    last_settlement_text: str,
-):
-    return InlineKeyboardMarkup(inline_keyboard=[
+
+
+def get_org_finance_keyboard(total_traffic_text: str, price_per_gb_text: str, debt_text: str, last_settlement_text: str, *, owner: str = "user", editable_price: bool = False, user_id: int | None = None):
+    if owner == "admin" and user_id is not None:
+        price_cb = f"admin_user_org_price_{user_id}" if editable_price else "profile_finance_ro"
+        back_cb = f"admin_user_{user_id}"
+    else:
+        price_cb = "profile_finance_ro"
+        back_cb = "profile"
+    buttons = [
         [InlineKeyboardButton(text=f"📊 مجموع ترافیک لینک‌های فعال: {total_traffic_text}", callback_data="profile_finance_ro")],
-        [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data="profile_finance_ro")],
+        [InlineKeyboardButton(text=f"💰 هزینه هر گیگ: {price_per_gb_text}", callback_data=price_cb)],
         [InlineKeyboardButton(text=f"🧾 مبلغ بدهکاری: {debt_text}", callback_data="profile_finance_ro")],
         [InlineKeyboardButton(text=f"🕓 زمان آخرین تسویه: {last_settlement_text}", callback_data="profile_finance_ro")],
-        [InlineKeyboardButton(text="🔙 بازگشت به حساب کاربری", callback_data="profile")],
-    ])
+    ]
+    if owner == "user":
+        buttons.append([InlineKeyboardButton(text="✅ تسویه حساب", callback_data="profile_finance_settle")])
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data=back_cb)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_wallet_keyboard(wallet_balance: int):

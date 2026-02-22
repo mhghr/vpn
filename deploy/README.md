@@ -60,3 +60,38 @@ sudo bash deploy/update_from_git.sh main
 - `main.py` را دوباره روی حالت webhook ست می‌کند
 - وابستگی‌های پایتون را نصب/اعتبارسنجی می‌کند
 - سرویس systemd ربات را ری‌استارت می‌کند
+
+### نکات مهم دیتابیس در آپدیت‌های جدید
+
+- اسکریپت `update_from_git.sh` دیتابیس را حذف نمی‌کند و فقط کد/وابستگی‌ها را آپدیت و سرویس را ری‌استارت می‌کند.
+- مایگریشن‌های `init_db()` به‌صورت غیرتخریبی (`ADD COLUMN IF NOT EXISTS`) اجرا می‌شوند؛ بنابراین داده‌های قبلی باقی می‌مانند.
+- برای اطمینان عملیاتی، قبل از هر آپدیت یک `pg_dump` بگیرید.
+
+نمونه بکاپ:
+
+```bash
+pg_dump -Fc -d "postgresql://USER:PASS@HOST:5432/DB" -f /root/vpn_$(date +%F_%H-%M).dump
+```
+
+### رفتار شمارنده ترافیک بعد از ریبوت روتر
+
+در سینک مصرف WireGuard اگر شمارنده فعلی روتر از مقدار قبلی کمتر شود، به‌عنوان reset/reboot در نظر گرفته می‌شود و دلتا به‌شکل امن محاسبه و به cumulative دیتابیس اضافه می‌شود تا مصرف قبلی از بین نرود.
+
+### اگر GitHub پیام `This branch has conflicts` داد
+
+این پیام مربوط به **اختلاف بین برنچ PR و برنچ مقصد** است، نه خرابی دیتابیس.
+برای رفع آن:
+
+```bash
+git checkout <your-branch>
+git fetch origin
+git rebase origin/main   # یا: git merge origin/main
+# conflictها را دستی حل کنید
+git add .
+git rebase --continue    # اگر rebase استفاده کردید
+# سپس
+# git push --force-with-lease   (برای rebase)
+# یا git push                    (برای merge)
+```
+
+بعد از push، وضعیت PR در GitHub دوباره محاسبه می‌شود.
