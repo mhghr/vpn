@@ -2,6 +2,7 @@ from ..common import *
 
 async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: str, user_id: int) -> bool:
     if data == "admin_plans":
+        admin_server_state.pop(user_id, None)
         db = SessionLocal()
         try:
             plans = db.query(Plan).all()
@@ -157,6 +158,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
             db.close()
 
     elif data == "plan_create":
+        admin_server_state.pop(user_id, None)
         admin_plan_state[user_id] = {"action": "create", "plan_id": "new", "step": "name", "data": {}}
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(
