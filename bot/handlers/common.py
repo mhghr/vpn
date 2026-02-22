@@ -26,7 +26,7 @@ from keyboards import (
     get_pending_panel_keyboard, get_plans_keyboard, get_plan_list_keyboard,
     get_plan_action_keyboard, get_plan_edit_keyboard, get_buy_keyboard,
     get_payment_method_keyboard, get_receipt_action_keyboard, get_receipt_done_keyboard, get_create_account_keyboard,
-    get_configs_keyboard, get_config_detail_keyboard, get_found_users_keyboard,
+    get_configs_keyboard, get_config_detail_keyboard, get_found_users_keyboard, get_found_configs_keyboard, get_admin_search_keyboard,
     get_admin_user_manage_keyboard, get_payment_method_keyboard_for_renew,
     get_admin_config_detail_keyboard, get_admin_config_confirm_delete_keyboard,
     get_admin_user_configs_keyboard, get_test_account_keyboard, get_service_types_keyboard,
@@ -154,17 +154,42 @@ def format_traffic(total_bytes: int) -> str:
     return f"{gb:.2f} GB"
 
 
+
+
+def get_config_limits(config: WireGuardConfig, plan: Plan | None):
+    duration_days = config.duration_days if config.duration_days is not None else (plan.duration_days if plan else None)
+    traffic_limit_gb = config.traffic_limit_gb if config.traffic_limit_gb is not None else (plan.traffic_gb if plan else None)
+    return duration_days, traffic_limit_gb
+
+
+def get_config_expires_at(config: WireGuardConfig, plan: Plan | None):
+    expires_at = config.expires_at
+    duration_days, _ = get_config_limits(config, plan)
+    if not expires_at and duration_days:
+        expires_at = config.created_at + timedelta(days=duration_days)
+    return expires_at
+
+
+def get_config_consumed_bytes(config: WireGuardConfig) -> int:
+    return int((config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0))
+
+
+def get_config_remaining_bytes(config: WireGuardConfig, plan: Plan | None) -> tuple[int, int]:
+    _, traffic_limit_gb = get_config_limits(config, plan)
+    limit_bytes = int((traffic_limit_gb or 0) * (1024 ** 3)) if traffic_limit_gb else 0
+    consumed = get_config_consumed_bytes(config)
+    remaining = max(limit_bytes - consumed, 0) if limit_bytes else 0
+    return limit_bytes, remaining
+
 def can_renew_config_now(config: WireGuardConfig, plan: Plan | None) -> bool:
     """Return True when config is eligible for direct renew action."""
-    if not config or not config.plan_id:
+    if not config:
         return False
 
     now = datetime.utcnow()
-    plan_traffic_bytes = int((plan.traffic_gb or 0) * (1024 ** 3)) if plan else 0
-    consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
-    expires_at = config.expires_at
-    if not expires_at and plan and plan.duration_days:
-        expires_at = config.created_at + timedelta(days=plan.duration_days)
+    plan_traffic_bytes, _ = get_config_remaining_bytes(config, plan)
+    consumed_bytes = get_config_consumed_bytes(config)
+    expires_at = get_config_expires_at(config, plan)
 
     is_expired_by_date = bool(expires_at and expires_at <= now)
     is_expired_by_traffic = bool(plan_traffic_bytes and consumed_bytes >= plan_traffic_bytes)

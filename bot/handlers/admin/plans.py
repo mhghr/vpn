@@ -63,7 +63,7 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
                 await callback.message.answer("❌ پلن/سرور نامعتبر است.", parse_mode="HTML")
                 return
             import wireguard
-            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), plan, plan.name, plan.duration_days))
+            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), plan, plan.name, plan.duration_days, traffic_limit_gb=plan.traffic_gb))
             if wg_result.get("success"):
                 await callback.message.answer(f"✅ اکانت روی سرور {server.name} ایجاد شد.", parse_mode="HTML")
                 if wg_result.get("config"):
@@ -75,11 +75,41 @@ async def handle_plan_management_callbacks(callback: CallbackQuery, bot, data: s
         finally:
             db.close()
 
+
+    elif data.startswith("create_acc_custom_server_"):
+        server_id = int(data.split("_")[-1])
+        state = admin_create_account_state.get(user_id)
+        if not state or state.get("step") != "server":
+            await callback.message.answer("❌ ابتدا فرایند ساخت پلن دلخواه را تکمیل کنید.", parse_mode="HTML")
+            return
+        db = SessionLocal()
+        try:
+            server = db.query(Server).filter(Server.id == server_id, Server.is_active == True).first()
+            if not server:
+                await callback.message.answer("❌ سرور نامعتبر است.", parse_mode="HTML")
+                return
+            account_name = state.get("name") or "بدون پلن"
+            days = int(state.get("days") or 0)
+            traffic = float(state.get("traffic") or 0)
+            import wireguard
+            wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), None, "بدون پلن", days, traffic_limit_gb=traffic))
+            if wg_result.get("success"):
+                await callback.message.answer(f"✅ اکانت دلخواه روی سرور {server.name} ایجاد شد.", parse_mode="HTML")
+                if wg_result.get("config"):
+                    await send_wireguard_config_file(callback.message, wg_result.get("config"), caption="📄 فایل کانفیگ WireGuard")
+                if wg_result.get("qr_code"):
+                    await send_qr_code(callback.message, wg_result.get("qr_code"), f"QR Code - {account_name}")
+            else:
+                await callback.message.answer(f"❌ خطا در ایجاد اکانت: {wg_result.get('error', 'خطای نامشخص')}", parse_mode="HTML")
+        finally:
+            db.close()
+            admin_create_account_state.pop(user_id, None)
+
     elif data == "create_acc_custom":
         # Start custom plan flow - ask for name first
         admin_create_account_state[user_id] = {"step": "name"}
         await callback.message.answer(
-            "📝 ساخت پلن دلخواه\n\nلطفاً نام اکانت را وارد کنید:\n(مثلاً: اکانت شخصی یا نام کاربر)",
+            "📝 ساخت پلن دلخواه\n\nلطفاً یک نام برای کانفیگ وارد کنید:",
             parse_mode="HTML"
         )
 
