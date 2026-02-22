@@ -38,7 +38,7 @@ async def notify_plan_thresholds_worker(bot: Bot):
 
                 expires_at = config.expires_at or (config.created_at + timedelta(days=(duration_days or 0)))
                 plan_traffic_bytes = (traffic_limit_gb or 0) * (1024 ** 3)
-                consumed_bytes = config.cumulative_rx_bytes or 0
+                consumed_bytes = (config.cumulative_rx_bytes or 0) + (config.cumulative_tx_bytes or 0)
                 remaining_bytes = max(plan_traffic_bytes - consumed_bytes, 0)
 
                 if not config.threshold_alert_sent and remaining_bytes <= ONE_GB_IN_BYTES:

@@ -111,16 +111,86 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
             configs = db.query(WireGuardConfig).filter(
                 WireGuardConfig.user_telegram_id == str(user_id)
             ).order_by(WireGuardConfig.created_at.desc()).all()
+            user_obj = get_user(db, str(user_id))
+            is_org_customer = bool(user_obj and user_obj.is_organization_customer)
             if configs:
                 await callback.message.answer(
                     "🔗 کانفیگ های من\n\nبرای مشاهده جزئیات، کانفیگ موردنظر را انتخاب کنید:",
-                    reply_markup=get_configs_keyboard(configs),
+                    reply_markup=get_configs_keyboard(configs, is_org_customer=is_org_customer),
+                    parse_mode="HTML"
+                )
+            elif is_org_customer:
+                await callback.message.answer(
+                    "🔗 هنوز کانفیگی ندارید. می‌توانید از دکمه‌های زیر استفاده کنید:",
+                    reply_markup=get_configs_keyboard([], is_org_customer=True),
                     parse_mode="HTML"
                 )
             else:
                 await callback.message.answer(MY_CONFIGS_MESSAGE, parse_mode="HTML")
         finally:
             db.close()
+
+    elif data == "org_create_account":
+        db = SessionLocal()
+        try:
+            user_obj = get_user(db, str(user_id))
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این گزینه فقط برای مشتری سازمانی فعال است.", show_alert=True)
+                return
+            org_user_state[user_id] = {"step": "name"}
+            await callback.message.answer("ابتدا یک نام برای اکانت وارد کنید:", parse_mode="HTML")
+        finally:
+            db.close()
+
+    elif data == "org_finance":
+        db = SessionLocal()
+        try:
+            user_obj = get_user(db, str(user_id))
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("اطلاعات مالی برای این حساب فعال نیست.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, user_obj)
+            await callback.message.answer(
+                "💼 مالی مشتری سازمانی:",
+                reply_markup=get_org_finance_keyboard(
+                    user_id=0,
+                    total_traffic_text=f"{financials['total_traffic_gb']:.2f} GB",
+                    price_per_gb_text=f"{financials['price_per_gb']:,} تومان",
+                    debt_text=f"{financials['debt_amount']:,} تومان",
+                    last_settlement_text=financials['last_settlement'],
+                    can_edit_price=False,
+                    show_settlement_action=True,
+                    back_callback="configs",
+                ),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
+
+    elif data == "org_settle_request":
+        db = SessionLocal()
+        try:
+            user_obj = get_user(db, str(user_id))
+            if not user_obj or not user_obj.is_organization_customer:
+                await callback.answer("این گزینه فقط برای مشتری سازمانی فعال است.", show_alert=True)
+                return
+            financials = calculate_org_user_financials(db, user_obj)
+            card_number, card_holder = get_card_info()
+            org_user_state[user_id] = {"step": "settlement_receipt", "amount": financials["debt_amount"]}
+            await callback.message.answer(
+                (
+                    "✅ درخواست تسویه ثبت شد.\n"
+                    f"مبلغ قابل پرداخت: {financials['debt_amount']:,} تومان\n\n"
+                    "لطفاً مبلغ را به کارت زیر واریز کنید و سپس عکس فیش را ارسال کنید:\n"
+                    f"<code>{card_number or '-'}</code>\n{card_holder or '-'}"
+                ),
+                parse_mode="HTML",
+            )
+        finally:
+            db.close()
+
+    elif data == "org_finance_ro":
+        await callback.answer("این بخش فقط جهت نمایش است.", show_alert=False)
 
     elif data.startswith("cfg_view_"):
         config_id = data.replace("cfg_view_", "")

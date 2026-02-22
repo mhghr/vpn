@@ -1,7 +1,7 @@
 from ..common import *
 
 async def handle_user_profile_callbacks(callback: CallbackQuery, bot, data: str, user_id: int) -> bool:
-    if data == "profile_ro" or data == "profile_finance_ro":
+    if data in {"profile_ro", "profile_finance_ro", "org_finance_ro"}:
         await callback.answer("این بخش فقط خواندنی است.", show_alert=False)
 
     elif data == "profile_finance":

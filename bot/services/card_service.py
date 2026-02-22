@@ -1,6 +1,4 @@
 import os
-from config import CARD_NUMBER, CARD_HOLDER
-
 CARD_INFO_FILE = "card_info.txt"
 
 
@@ -14,7 +12,7 @@ def get_card_info() -> tuple[str, str]:
             return number, holder
         except Exception:
             pass
-    return CARD_NUMBER, CARD_HOLDER
+    return "", ""
 
 
 def set_card_info(card_number: str, card_holder: str = "") -> None:

@@ -154,3 +154,107 @@ async def handle_receipt_photo(message: Message):
         await message.answer(f"❌ خطا در ذخیره فیش: {str(e)}", parse_mode="HTML")
     finally:
         db.close()
+
+@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in org_user_state and org_user_state.get(message.from_user.id, {}).get("step") in {"name", "days", "traffic"})
+async def handle_org_create_account_input(message: Message):
+    user_id = message.from_user.id
+    state = org_user_state.get(user_id, {})
+    step = state.get("step")
+    text = (message.text or "").strip()
+
+    if step == "name":
+        if not text:
+            await message.answer("❌ نام معتبر وارد کنید.", parse_mode="HTML")
+            return
+        state["name"] = text
+        state["step"] = "days"
+        org_user_state[user_id] = state
+        await message.answer("تعداد روز را وارد کنید:", parse_mode="HTML")
+        return
+
+    if step == "days":
+        txt = normalize_numbers(text)
+        if not txt.isdigit() or int(txt) <= 0:
+            await message.answer("❌ تعداد روز نامعتبر است.", parse_mode="HTML")
+            return
+        state["days"] = int(txt)
+        state["step"] = "traffic"
+        org_user_state[user_id] = state
+        await message.answer("مقدار ترافیک (گیگ) را وارد کنید:", parse_mode="HTML")
+        return
+
+    if step == "traffic":
+        try:
+            traffic = float(normalize_numbers(text))
+        except ValueError:
+            traffic = -1
+        if traffic <= 0:
+            await message.answer("❌ مقدار ترافیک نامعتبر است.", parse_mode="HTML")
+            return
+        state["traffic"] = traffic
+        state["step"] = "server"
+        org_user_state[user_id] = state
+
+        db = SessionLocal()
+        try:
+            wireguard_type = db.query(ServiceType).filter(ServiceType.code == "wireguard").first()
+            if not wireguard_type:
+                await message.answer("❌ سرویس WireGuard تعریف نشده است.", parse_mode="HTML")
+                return
+            servers = db.query(Server).filter(Server.service_type_id == wireguard_type.id, Server.is_active == True).all()
+            if not servers:
+                await message.answer("❌ سرور فعالی وجود ندارد.", parse_mode="HTML")
+                return
+            await message.answer("سرور مدنظر را انتخاب کنید:", reply_markup=get_plan_server_select_keyboard(servers, "create_acc_custom_server_"), parse_mode="HTML")
+        finally:
+            db.close()
+
+
+@dp.message(lambda message: (not is_admin(message.from_user.id)) and message.from_user.id in org_user_state and org_user_state.get(message.from_user.id, {}).get("step") == "settlement_receipt")
+async def handle_org_settlement_receipt(message: Message):
+    user_id = message.from_user.id
+    state = org_user_state.get(user_id, {})
+    if not message.photo:
+        await message.answer("❌ لطفاً تصویر فیش را ارسال کنید.", parse_mode="HTML")
+        return
+
+    file_id = message.photo[-1].file_id
+    amount = int(state.get("amount") or 0)
+
+    db = SessionLocal()
+    try:
+        receipt = PaymentReceipt(
+            user_telegram_id=str(user_id),
+            plan_id=None,
+            plan_name="تسویه سازمانی",
+            amount=amount,
+            payment_method="org_settlement",
+            receipt_file_id=file_id,
+            status="pending",
+        )
+        db.add(receipt)
+        db.commit()
+
+        await message.answer("✅ فیش تسویه ارسال شد. پس از تایید ادمین، تسویه اعمال می‌شود.", parse_mode="HTML")
+
+        user = message.from_user
+        user_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "-"
+        for admin_id in ADMIN_IDS:
+            try:
+                await message.bot.send_photo(
+                    chat_id=admin_id,
+                    photo=file_id,
+                    caption=(
+                        "💼 درخواست تسویه مشتری سازمانی\n\n"
+                        f"👤 نام: {user_name}\n"
+                        f"🆔 آیدی: {user_id}\n"
+                        f"💰 مبلغ اعلامی: {amount:,} تومان"
+                    ),
+                    reply_markup=get_receipt_action_keyboard(receipt.id),
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                print(f"Error sending org settlement receipt to admin: {e}")
+    finally:
+        db.close()
+        org_user_state.pop(user_id, None)

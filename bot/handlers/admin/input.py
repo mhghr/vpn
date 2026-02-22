@@ -470,6 +470,30 @@ async def handle_admin_input(message: Message):
 
         return
 
+
+    if user_id in admin_plan_state and admin_plan_state[user_id].get("action") == "edit_org_price":
+        state = admin_plan_state[user_id]
+        target_user_id = state.get("target_user_id")
+        value_text = normalize_numbers(text).replace(",", "").strip()
+        if not value_text.isdigit() or int(value_text) <= 0:
+            await message.answer("❌ لطفاً مبلغ معتبر وارد کنید.", parse_mode="HTML")
+            return
+        db = SessionLocal()
+        try:
+            user_obj = db.query(User).filter(User.id == target_user_id).first()
+            if not user_obj or not user_obj.is_organization_customer:
+                await message.answer("❌ کاربر سازمانی یافت نشد.", parse_mode="HTML")
+                return
+            user_obj.org_price_per_gb = int(value_text)
+            db.commit()
+            await message.answer("✅ هزینه هر گیگ بروزرسانی شد.", parse_mode="HTML")
+            msg, keyboard = get_admin_user_manage_view(db, user_obj, show_finance_panel=True)
+            await message.answer(msg, reply_markup=keyboard, parse_mode="HTML")
+        finally:
+            db.close()
+            admin_plan_state.pop(user_id, None)
+        return
+
     if user_id in admin_plan_state and admin_plan_state[user_id].get("action") == "edit_config":
         state = admin_plan_state[user_id]
         field = state.get("field")
