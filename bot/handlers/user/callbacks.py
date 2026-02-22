@@ -83,7 +83,7 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
                     wg_result.get("qr_code"),
                     caption=(
                         "📷 QR Code اکانت تست\n\n"
-                        f"🏷 نام کانفیگ: <code>{wg_result.get('peer_comment', 'نامشخص')}</code>\n"
+                        f"🏷 نام کانفیگ: {wg_result.get('peer_comment', 'نامشخص')}\n"
                         f"📦 پلن انتخابی: {plan.name}"
                     ),
                 )
