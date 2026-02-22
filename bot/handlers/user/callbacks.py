@@ -37,25 +37,10 @@ async def handle_user_callbacks(callback: CallbackQuery, bot, data: str, user_id
                 import wireguard
                 available_servers = get_available_servers_for_plan(db, plan.id)
                 server = available_servers[0] if available_servers else None
-                if server:
-                    wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), plan, plan.name, plan.duration_days))
-                else:
-                    wg_result = wireguard.create_wireguard_account(
-                        mikrotik_host=MIKROTIK_HOST,
-                        mikrotik_user=MIKROTIK_USER,
-                        mikrotik_pass=MIKROTIK_PASS,
-                        mikrotik_port=MIKROTIK_PORT,
-                        wg_interface=WG_INTERFACE,
-                        wg_server_public_key=WG_SERVER_PUBLIC_KEY,
-                        wg_server_endpoint=WG_SERVER_ENDPOINT,
-                        wg_server_port=WG_SERVER_PORT,
-                        wg_client_network_base=WG_CLIENT_NETWORK_BASE,
-                        wg_client_dns=WG_CLIENT_DNS,
-                        user_telegram_id=str(user_id),
-                        plan_id=plan.id,
-                        plan_name=plan.name,
-                        duration_days=plan.duration_days,
-                    )
+                if not server:
+                    await callback.message.answer("❌ برای پلن اکانت تست هیچ سرور فعالی در دیتابیس مپ نشده است.", parse_mode="HTML")
+                    return
+                wg_result = wireguard.create_wireguard_account(**build_wg_kwargs(server, str(user_id), plan, plan.name, plan.duration_days))
             except Exception as e:
                 await callback.message.answer(f"❌ خطا در ایجاد اکانت تست: {str(e)}", parse_mode="HTML")
                 return

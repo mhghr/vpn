@@ -476,7 +476,13 @@ def delete_wireguard_peer(
                 pass
 
 
-def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None, ip_range_end: int = None) -> str:
+def get_next_available_ip_from_db(
+    network_base: str,
+    ip_range_start: int,
+    ip_range_end: int,
+    server_id: int = None,
+    used_ips_from_router: set[int] | None = None,
+) -> str:
     """
     Get next available IP from the database
     Range: by default 10-250 (skipping 1-9 and 251+)
@@ -488,16 +494,18 @@ def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None,
     base_parts = network_base.rsplit('.', 1)
     prefix = base_parts[0] + "."
     
-    # Default range if not specified
-    start = ip_range_start if ip_range_start else 10
-    end = ip_range_end if ip_range_end else 250
+    start = ip_range_start
+    end = ip_range_end
     
     logger.info(f"[Step 2] IP range: {start}-{end}")
     
     db = SessionLocal()
     try:
-        # Get all active configs from database
-        configs = db.query(WireGuardConfig).filter(WireGuardConfig.status == "active").all()
+        # Get all assigned configs from database for this server
+        query = db.query(WireGuardConfig)
+        if server_id is not None:
+            query = query.filter(WireGuardConfig.server_id == server_id)
+        configs = query.all()
         
         # Extract used IPs
         used_ips = set()
@@ -511,7 +519,10 @@ def get_next_available_ip_from_db(network_base: str, ip_range_start: int = None,
                     except (ValueError, IndexError):
                         pass
         
-        logger.info(f"[Step 2] Used IPs in database: {sorted(used_ips)}")
+        if used_ips_from_router:
+            used_ips.update(used_ips_from_router)
+
+        logger.info(f"[Step 2] Used IPs (database + router): {sorted(used_ips)}")
         
         # Find next available IP in the specified range
         for i in range(start, end + 1):
@@ -718,7 +729,7 @@ def create_wireguard_account(
     wg_server_public_key: str,
     wg_server_endpoint: str,
     wg_server_port: int,
-    wg_client_network_base: str = "192.168.30.0",
+    wg_client_network_base: str = None,
     wg_client_dns: str = "8.8.8.8,1.0.0.1",
     wg_ip_range_start: int = None,
     wg_ip_range_end: int = None,
@@ -731,7 +742,7 @@ def create_wireguard_account(
     """
     Create a WireGuard account on MikroTik using RouterOS API
     
-    IP Range: 10-250 (skips 1-9 and 251+)
+    IP range must be provided from server configuration in database.
     
     Args:
         user_telegram_id: Telegram user ID
@@ -763,6 +774,21 @@ def create_wireguard_account(
         error_msg = "qrcode module not installed"
         logger.error(f"✗ {error_msg}")
         return {"success": False, "error": error_msg}
+
+    if not wg_client_network_base:
+        error_msg = "wg_client_network_base is required and must come from server data"
+        logger.error(f"✗ {error_msg}")
+        return {"success": False, "error": error_msg}
+
+    if wg_ip_range_start is None or wg_ip_range_end is None:
+        error_msg = "IP range is required (wg_ip_range_start/wg_ip_range_end) from server data"
+        logger.error(f"✗ {error_msg}")
+        return {"success": False, "error": error_msg}
+
+    if wg_ip_range_start > wg_ip_range_end:
+        error_msg = "Invalid IP range: start is greater than end"
+        logger.error(f"✗ {error_msg}")
+        return {"success": False, "error": error_msg}
     
     pool = None
     try:
@@ -773,18 +799,8 @@ def create_wireguard_account(
         # Step 1: Generate keys
         public_key, private_key = generate_wireguard_keypair()
         
-        # Step 2: Get next available IP
-        client_ip = get_next_available_ip_from_db(wg_client_network_base, wg_ip_range_start, wg_ip_range_end)
-        
-        if client_ip is None:
-            error_msg = "No available IP in range 10-250"
-            logger.error(f"✗ {error_msg}")
-            return {"success": False, "error": error_msg}
-        
-        logger.info(f"[Step 3] Selected IP: {client_ip}")
-        
-        # Step 3: Connect to MikroTik
-        logger.info(f"[Step 3] Connecting to MikroTik {mikrotik_host}:{mikrotik_port}...")
+        # Step 2: Connect to MikroTik
+        logger.info(f"[Step 2] Connecting to MikroTik {mikrotik_host}:{mikrotik_port}...")
         try:
             pool = RouterOsApiPool(
                 mikrotik_host,
@@ -794,29 +810,59 @@ def create_wireguard_account(
                 plaintext_login=True
             )
             api = pool.get_api()
-            logger.info("[Step 3] ✓ Connected to MikroTik API successfully")
+            logger.info("[Step 2] ✓ Connected to MikroTik API successfully")
         except Exception as e:
             error_msg = f"Failed to connect to MikroTik: {str(e)}"
-            logger.error(f"[Step 3] ✗ {error_msg}")
+            logger.error(f"[Step 2] ✗ {error_msg}")
             return {"success": False, "error": error_msg}
         
-        # Step 4: Check WireGuard interface
-        logger.info(f"[Step 4] Checking WireGuard interface '{wg_interface}'...")
+        # Step 3: Check WireGuard interface
+        logger.info(f"[Step 3] Checking WireGuard interface '{wg_interface}'...")
         try:
             wgifs = api.get_resource('/interface/wireguard').get()
-            logger.info(f"[Step 4] Available interfaces: {[i.get('name') for i in wgifs]}")
+            logger.info(f"[Step 3] Available interfaces: {[i.get('name') for i in wgifs]}")
             
             if not any(i.get('name') == wg_interface for i in wgifs):
                 error_msg = f"WireGuard interface '{wg_interface}' not found on MikroTik!"
-                logger.error(f"[Step 4] ✗ {error_msg}")
+                logger.error(f"[Step 3] ✗ {error_msg}")
                 return {"success": False, "error": error_msg}
             
-            logger.info(f"[Step 4] ✓ WireGuard interface '{wg_interface}' found")
+            logger.info(f"[Step 3] ✓ WireGuard interface '{wg_interface}' found")
         except Exception as e:
             error_msg = f"Failed to check WireGuard interface: {str(e)}"
+            logger.error(f"[Step 3] ✗ {error_msg}")
+            return {"success": False, "error": error_msg}
+
+        # Step 4: Get next available IP by checking DB + router peers
+        peers = api.get_resource('/interface/wireguard/peers').get()
+        base_parts = wg_client_network_base.rsplit('.', 1)
+        prefix = base_parts[0] + "."
+        router_used_ips: set[int] = set()
+        for peer in peers:
+            if peer.get('interface') and peer.get('interface') != wg_interface:
+                continue
+            allowed_address = (peer.get("allowed-address") or "").split('/')[0].strip()
+            if allowed_address.count('.') == 3 and allowed_address.startswith(prefix):
+                try:
+                    router_used_ips.add(int(allowed_address.rsplit('.', 1)[-1]))
+                except (TypeError, ValueError):
+                    continue
+
+        client_ip = get_next_available_ip_from_db(
+            wg_client_network_base,
+            wg_ip_range_start,
+            wg_ip_range_end,
+            server_id=server_id,
+            used_ips_from_router=router_used_ips,
+        )
+
+        if client_ip is None:
+            error_msg = f"No available IP in configured range {wg_ip_range_start}-{wg_ip_range_end}"
             logger.error(f"[Step 4] ✗ {error_msg}")
             return {"success": False, "error": error_msg}
-        
+
+        logger.info(f"[Step 4] ✓ Selected IP: {client_ip}")
+
         # Step 5: Add peer to MikroTik
         logger.info("[Step 5] Adding peer to MikroTik...")
         try:

@@ -445,23 +445,28 @@ async def handle_admin_input(message: Message):
                 # Create WireGuard account with custom plan
                 try:
                     import wireguard
-                    wg_result = wireguard.create_wireguard_account(
-                        mikrotik_host=MIKROTIK_HOST,
-                        mikrotik_user=MIKROTIK_USER,
-                        mikrotik_pass=MIKROTIK_PASS,
-                        mikrotik_port=MIKROTIK_PORT,
-                        wg_interface=WG_INTERFACE,
-                        wg_server_public_key=WG_SERVER_PUBLIC_KEY,
-                        wg_server_endpoint=WG_SERVER_ENDPOINT,
-                        wg_server_port=WG_SERVER_PORT,
-                        wg_client_network_base=WG_CLIENT_NETWORK_BASE,
-                        wg_client_dns=WG_CLIENT_DNS,
-                        user_telegram_id=str(user_id),
-                        plan_id=None,
-                        plan_name=account_name,
-                        duration_days=days
-                    )
-                    
+                    db = SessionLocal()
+                    try:
+                        wireguard_type = db.query(ServiceType).filter(ServiceType.code == "wireguard").first()
+                        if not wireguard_type:
+                            await message.answer("❌ نوع سرویس WireGuard در دیتابیس تعریف نشده است.", parse_mode="HTML")
+                            return
+
+                        servers = db.query(Server).filter(
+                            Server.service_type_id == wireguard_type.id,
+                            Server.is_active == True,
+                        ).all()
+                        if not servers:
+                            await message.answer("❌ هیچ سرور فعالی برای WireGuard در دیتابیس ثبت نشده است.", parse_mode="HTML")
+                            return
+
+                        server = min(servers, key=lambda srv: get_server_active_config_count(db, srv.id))
+                        wg_result = wireguard.create_wireguard_account(
+                            **build_wg_kwargs(server, str(user_id), None, account_name, days)
+                        )
+                    finally:
+                        db.close()
+
                     if wg_result.get("success"):
                         client_ip = wg_result.get("client_ip", "N/A")
                         config = wg_result.get("config", "")
