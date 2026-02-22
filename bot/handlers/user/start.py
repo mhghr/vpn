@@ -10,15 +10,21 @@ async def start_handler(message: Message, bot):
     try:
         is_member = await check_channel_member(bot, user_id, CHANNEL_ID)
         if is_member:
-            db_user = get_or_create_user(db, str(user_id), user.username, user.first_name, user.last_name)
+            db_user, is_new_user = get_or_create_user(
+                db,
+                str(user_id),
+                user.username,
+                user.first_name,
+                user.last_name,
+                return_created=True,
+            )
             if db_user.is_blocked:
                 await message.answer("⛔ حساب شما توسط ادمین مسدود شده است.", parse_mode="HTML")
                 return
-            was_member = db_user.is_member
             db_user.is_member = True
             db.commit()
             await message.answer(WELCOME_MESSAGE, reply_markup=get_main_keyboard(db_user.is_admin), parse_mode="HTML")
-            if not was_member:
+            if is_new_user:
                 await message.answer("🎉 خوش آمدید! عضویت شما در کانال تایید شد.", parse_mode="HTML")
                 for admin_id in ADMIN_IDS:
                     try:
@@ -126,4 +132,3 @@ async def handle_user_menu_buttons(message: Message):
     if text == "📚 آموزش اتصال":
         await message.answer("📚 لیست آموزش‌ها:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📚 آموزش‌ها", callback_data="user_tutorials")]]), parse_mode="HTML")
         return
-

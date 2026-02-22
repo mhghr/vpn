@@ -2,8 +2,9 @@ from models import User, WireGuardConfig
 from config import ADMIN_IDS
 
 
-def get_or_create_user(db, telegram_id: str, username=None, first_name=None, last_name=None):
+def get_or_create_user(db, telegram_id: str, username=None, first_name=None, last_name=None, return_created: bool = False):
     user = db.query(User).filter(User.telegram_id == str(telegram_id)).first()
+    created = False
     if not user:
         admin = str(telegram_id) in ADMIN_IDS
         user = User(
@@ -18,6 +19,10 @@ def get_or_create_user(db, telegram_id: str, username=None, first_name=None, las
         db.add(user)
         db.commit()
         db.refresh(user)
+        created = True
+
+    if return_created:
+        return user, created
     return user
 
 
